@@ -1,0 +1,45 @@
+# === Core ===
+Flask
+python-dotenv
+
+# === Database ===
+SQLAlchemy
+
+# === LangChain Core ===
+langchain-core
+langchain-community
+langgraph
+
+# === Document Loaders ===
+PyMuPDF  # For PDF loading
+unstructured  # For Markdown or raw docs
+pymupdf  # Dependency for PyMuPDF
+
+# === Embeddings & Vector Store ===
+faiss-cpu
+langchainhub
+ollama  # Only if you're embedding locally with Ollama
+sentence-transformers  # Optional alternative for embeddings
+
+# === HTTP Requests ===
+requests
+
+# === Prompt Formatting ===
+jinja2
+
+# === PDF Generation (optional) ===
+fpdf  # For exporting fitness plans to PDF (used in Streamlit app)
+
+# === Firestore/Firebase (optional, if used elsewhere) ===
+firebase-admin  # If you use Firestore for chat memory
+
+# === Dev Tools (optional) ===
+ipython
+# OLllama for embedding 
+langchain-ollama
+
+#FAISS
+faiss-cpu
+pymupdf
+#front
+#npm install expo-file-system expo-print expo-sharing
