@@ -12,8 +12,8 @@ import {
 } from '@react-navigation/drawer';
 import { createStackNavigator } from '@react-navigation/stack';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-
-import { auth } from './firebaseConfig';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { auth, firebaseConfig } from './firebaseConfig'; // or define firebaseConfig here
 import Welcome from './screens/Welcome';
 import HomeScreen from './screens/HomeScreen';
 import ChatbotScreen from './screens/ChatbotScreen';
@@ -22,7 +22,7 @@ import DashboardScreen from './screens/DashboardScreen';
 import Login from './screens/Login';
 import Signup from './screens/Signup';
 import ResetPassword from './screens/ResetPassword';
-
+import { Platform } from 'react-native';
 const Drawer = createDrawerNavigator();
 const Stack = createStackNavigator();
 
@@ -113,7 +113,17 @@ function AuthStack({ onLoginSuccess }) {
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+      if (Platform.OS !== 'web') {
+        GoogleSignin.configure({
+          webClientId:'380120986027-u3qn7issf00cc87ppebd6uj1u5i8l1if.apps.googleusercontent.com', 
+        });
+      }
+    }, []);
 
+ 
+  
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (usr) => {
       console.log('Firebase user:', usr);

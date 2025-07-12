@@ -9,7 +9,8 @@ const firebaseConfig = {
   storageBucket: "aitrainerfirebaseath.appspot.com",
   messagingSenderId: "380120986027",
   appId: "1:380120986027:web:b0fdde89a8619f829a62ee",
-  measurementId: "G-LF578VCEFN"
+  measurementId: "G-LF578VCEFN",
+  webClientId:"380120986027-u3qn7issf00cc87ppebd6uj1u5i8l1if.apps.googleusercontent.com"
 };
 
 const app = initializeApp(firebaseConfig);

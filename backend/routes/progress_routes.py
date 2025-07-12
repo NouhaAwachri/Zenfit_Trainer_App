@@ -1,6 +1,6 @@
 # progress_routes.py
 from flask import Blueprint, request, jsonify
-from services.coach import AIFitnessCoach  # ✅ Use your coach agent
+from services.coach import AIFitnessCoach  
 
 progress_bp = Blueprint('progress', __name__)
 
@@ -12,7 +12,7 @@ def chat():
         return jsonify({"error": "No message provided"}), 400
 
     coach = AIFitnessCoach()
-    messages = coach.run({"goal": "General", "experience_level": "Beginner", "equipment": [], "constraints": "", "feedback": "", "question": user_input})
+    messages = coach.run({"goal": "General", "experience": "Beginner", "equipment": [], "constraints": "", "feedback": "", "question": user_input})
 
     # Extract only the last AI response
     ai_response = ""

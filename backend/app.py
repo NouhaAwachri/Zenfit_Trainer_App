@@ -4,7 +4,7 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 import os
 
-from models.db import db  # ✅ use shared db
+from models.db import db  
 
 load_dotenv()
 
@@ -14,7 +14,7 @@ CORS(app)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'mysql+pymysql://root:yourpassword@localhost/ai_fitness')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-db.init_app(app)  # ✅ attach db to app properly
+db.init_app(app)  
 
 # ✅ Blueprint imports AFTER db.init_app
 from routes.auth_routes import auth_bp

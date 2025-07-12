@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,40 +10,67 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
+  SafeAreaView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { signOut } from 'firebase/auth';
-import { auth } from '../firebaseConfig';
+
 const { width } = Dimensions.get('window');
+
 const scale = (multiplier, max) => Math.min(width * multiplier, max);
 
 export default function ChatbotScreen({ navigation, user }) {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([]);
-  const [conversations, setConversations] = useState([
-    { id: '1', title: 'Leg Day Plan' },
-    { id: '2', title: 'Diet Tips' },
+  const [plans, setPlans] = useState([
+    { id: '1', title: 'Push-Pull Split Week 1' },
+    { id: '2', title: 'Fat Loss Plan - Month 1' },
+    { id: '3', title: 'Strength Build Phase' },
   ]);
+  const [selectedPlanId, setSelectedPlanId] = useState('1');
 
   const username = user?.displayName || user?.email?.split('@')[0] || 'User';
-const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Login' }],
-      });
-    } catch (error) {
-      console.error('Logout error:', error);
+  const flatListRef = useRef(null);
+
+  // Scroll to bottom when messages update
+  useEffect(() => {
+    if (flatListRef.current && messages.length > 0) {
+      flatListRef.current.scrollToEnd({ animated: true });
     }
-  };
+  }, [messages]);
+
+  // Load messages for selected plan — stub for now
+  useEffect(() => {
+    // Replace with actual fetch/load logic
+    // Example stub:
+    if (selectedPlanId === '1') {
+      setMessages([
+        { role: 'ai', content: 'Welcome to your Push-Pull Split plan! Ready to crush it?' },
+      ]);
+    } else if (selectedPlanId === '2') {
+      setMessages([
+        { role: 'ai', content: 'This Fat Loss Plan will help you shred fat safely.' },
+      ]);
+    } else {
+      setMessages([
+        { role: 'ai', content: 'Focus on heavy lifts this Strength Build Phase.' },
+      ]);
+    }
+  }, [selectedPlanId]);
 
   const sendMessage = () => {
     if (!input.trim()) return;
 
-    setMessages([...messages, { role: 'user', content: input }]);
+    // Add user message
+    setMessages((prev) => [...prev, { role: 'user', content: input.trim() }]);
     setInput('');
+
+    // Simulate AI response (replace with your backend API call)
+    setTimeout(() => {
+      setMessages((prev) => [
+        ...prev,
+        { role: 'ai', content: 'Got it! Let me analyze that for you...' },
+      ]);
+    }, 800);
   };
 
   return (
@@ -52,10 +79,7 @@ const handleLogout = async () => {
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.openDrawer()}
-          style={styles.menuButton}
-        >
+        <TouchableOpacity onPress={() => navigation.openDrawer()} style={styles.menuButton}>
           <Ionicons name="menu" size={28} color="white" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Chat with Coach</Text>
@@ -69,10 +93,24 @@ const handleLogout = async () => {
       <View style={styles.contentWrapper}>
         {/* Sidebar */}
         <View style={styles.sidebar}>
-          <Text style={styles.sidebarTitle}>💬 Conversations</Text>
-          {conversations.map((conv) => (
-            <TouchableOpacity key={conv.id} style={styles.convoItem}>
-              <Text style={styles.convoText}>{conv.title}</Text>
+          <Text style={styles.sidebarTitle}>🏋️‍♂️ My Programs</Text>
+          {plans.map((plan) => (
+            <TouchableOpacity
+              key={plan.id}
+              onPress={() => setSelectedPlanId(plan.id)}
+              style={[
+                styles.convoItem,
+                selectedPlanId === plan.id && styles.convoItemSelected,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.convoText,
+                  selectedPlanId === plan.id && styles.convoTextSelected,
+                ]}
+              >
+                {plan.title}
+              </Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -81,11 +119,13 @@ const handleLogout = async () => {
         <KeyboardAvoidingView
           style={styles.chatArea}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={90}
         >
           <FlatList
+            ref={flatListRef}
             data={messages}
             keyExtractor={(_, i) => i.toString()}
-            contentContainerStyle={{ padding: 20 }}
+            contentContainerStyle={{ paddingVertical: 20, paddingHorizontal: 12 }}
             renderItem={({ item }) => (
               <View
                 style={[
@@ -93,7 +133,14 @@ const handleLogout = async () => {
                   item.role === 'user' ? styles.userBubble : styles.botBubble,
                 ]}
               >
-                <Text style={styles.messageText}>{item.content}</Text>
+                <Text
+                  style={[
+                    styles.messageText,
+                    item.role === 'user' ? styles.userText : styles.botText,
+                  ]}
+                >
+                  {item.content}
+                </Text>
               </View>
             )}
           />
@@ -106,9 +153,12 @@ const handleLogout = async () => {
               placeholder="Ask your coach..."
               placeholderTextColor="#aaa"
               style={styles.input}
+              multiline
+              returnKeyType="send"
+              onSubmitEditing={sendMessage}
             />
             <TouchableOpacity onPress={sendMessage} style={styles.sendButton}>
-              <Ionicons name="send" size={20} color="white" />
+              <Ionicons name="send" size={22} color="white" />
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -131,7 +181,7 @@ const styles = StyleSheet.create({
   menuButton: { marginRight: 10 },
   headerTitle: {
     color: 'white',
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
   },
   usernameWrapper: {
@@ -151,73 +201,105 @@ const styles = StyleSheet.create({
 
   sidebar: {
     width: width * 0.28,
-    backgroundColor: '#111',
+    backgroundColor: '#1a1a1a',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     borderRightWidth: 1,
     borderRightColor: '#333',
-    padding: 12,
   },
   sidebarTitle: {
     color: '#aaa',
     fontWeight: 'bold',
-    marginBottom: 10,
+    fontSize: 16,
+    marginBottom: 14,
   },
   convoItem: {
-    backgroundColor: '#222',
-    padding: 10,
-    marginBottom: 8,
-    borderRadius: 8,
+    backgroundColor: '#292929',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    marginBottom: 10,
+  },
+  convoItemSelected: {
+    backgroundColor: '#9C27B0',
   },
   convoText: {
     color: '#eee',
-    fontSize: 14,
+    fontWeight: '600',
+  },
+  convoTextSelected: {
+    color: 'white',
   },
 
   chatArea: {
     flex: 1,
-    backgroundColor: '#fafafa',
+    backgroundColor: '#121212',
   },
 
   messageBubble: {
     maxWidth: '80%',
-    padding: 12,
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     marginVertical: 6,
-    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 3,
   },
   userBubble: {
     backgroundColor: '#9C27B0',
     alignSelf: 'flex-end',
+    borderTopRightRadius: 0,
+    shadowColor: '#9C27B0',
+    shadowOpacity: 0.9,
   },
   botBubble: {
-    backgroundColor: '#eee',
+    backgroundColor: '#292929',
     alignSelf: 'flex-start',
+    borderTopLeftRadius: 0,
   },
+
   messageText: {
-    color: '#000',
-    fontSize: 15,
+    fontSize: 16,
+    lineHeight: 22,
+  },
+  userText: {
+    color: '#fff',
+  },
+  botText: {
+    color: '#ccc',
   },
 
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#222',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    backgroundColor: '#111',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     borderTopWidth: 1,
-    borderTopColor: '#333',
+    borderTopColor: '#222',
   },
   input: {
     flex: 1,
+    backgroundColor: '#292929',
     color: '#fff',
-    fontSize: 15,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#333',
-    borderRadius: 20,
+    borderRadius: 25,
+    fontSize: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    maxHeight: 120,
   },
   sendButton: {
+    marginLeft: 10,
     backgroundColor: '#9C27B0',
-    padding: 10,
-    marginLeft: 8,
-    borderRadius: 20,
+    padding: 14,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#9C27B0',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.7,
+    shadowRadius: 8,
   },
 });
