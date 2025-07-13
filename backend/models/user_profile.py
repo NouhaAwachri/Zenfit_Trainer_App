@@ -6,6 +6,8 @@ class UserProfile(db.Model):
     firebase_uid = db.Column(db.String(255), unique=True, nullable=False)
     gender = db.Column(db.String(10))
     age = db.Column(db.Integer)
+    height = db.Column(db.Integer)
+    weight = db.Column(db.Integer)
     goal = db.Column(db.String(255))
     experience = db.Column(db.String(50))
     days_per_week = db.Column(db.String(50))

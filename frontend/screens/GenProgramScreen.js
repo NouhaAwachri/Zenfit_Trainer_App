@@ -124,35 +124,64 @@ useEffect(() => {
         });
         const data = await response.json();
         if (response.ok) {
-          setGenerated(data.program);
-          setPlanVersions(prev => [...prev, data.program]);
-          setSelectedVersionIndex(prev => prev === null ? 0 : prev + 1);
-        } else setGenerated(`❌ Error: ${data.error}`);
-      } catch (e) {
-        console.error('Error:', e);
-        setGenerated('❌ Failed to connect to server');
-      } finally { setLoading(false); }
-    }
+        setGenerated(data.program);
+        setPlanVersions(prev => [...prev, data.program]);
+        setSelectedVersionIndex(0);
+        setChatHistory([{ type: 'ai', text: data.program }]); 
+        setChatMode(true);           //  switch to chat
+          }
+          else setGenerated(`❌ Error: ${data.error}`);
+                } catch (e) {
+                  console.error('Error:', e);
+                  setGenerated('❌ Failed to connect to server');
+                } finally { setLoading(false); }
+              }
     setCurrentQuestionIndex(prev => prev + 1);
   };
 
-  const handleFollowUpSend = async () => {
-    if (!chatInput.trim()) return;
-    const updatedHistory = [...chatHistory, { type: 'user', text: chatInput }];
-    setChatHistory(updatedHistory);
-    setChatInput('');
-    try {
-      const response = await fetch('http://192.168.1.11:5000/generate/chat-follow-up', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: user?.uid, question: chatInput })
-      });
-      const data = await response.json();
-      setChatHistory([...updatedHistory, { type: 'ai', text: data.answer }]);
-    } catch (e) {
-      setChatHistory([...updatedHistory, { type: 'ai', text: '❌ Failed to respond.' }]);
+const handleFollowUpSend = async () => {
+  if (!chatInput.trim()) return;
+
+  const userMessage = { type: 'user', text: chatInput };
+  const typingMessage = { type: 'typing', text: '...' };
+  setChatHistory(prev => [...prev, userMessage, typingMessage]);
+  setChatInput('');
+
+  try {
+    const response = await fetch('http://192.168.1.11:5000/generate/chat-follow-up', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        firebase_uid: user?.uid,
+        feedback: chatInput,
+      }),
+    });
+
+    const data = await response.json();
+    const aiText = data.adjusted_program || data.error || '❌ No response';
+
+    // Replace typing message with real response
+    setChatHistory(prev => {
+      const withoutTyping = prev.filter(msg => msg.type !== 'typing');
+      return [...withoutTyping, { type: 'ai', text: aiText }];
+    });
+
+    if (data.adjusted_program) {
+      setPlanVersions(prev => [...prev, data.adjusted_program]);
+      setSelectedVersionIndex(planVersions.length);
+      setGenerated(data.adjusted_program);
     }
-  };
+
+  } catch (e) {
+    console.error(e);
+    setChatHistory(prev => {
+      const withoutTyping = prev.filter(msg => msg.type !== 'typing');
+      return [...withoutTyping, { type: 'ai', text: '❌ Server error. Try again.' }];
+    });
+  }
+};
+
+
 
   const handleDownload = async () => {
     try {
@@ -270,11 +299,22 @@ if (initializing) {
             <FlatList
               ref={flatListRef}
               data={chatHistory}
-              renderItem={({ item }) => (
-                <View style={item.type === 'user' ? styles.chatBubbleUser : styles.chatBubbleAI}>
-                  <Text style={styles.chatText}>{item.text}</Text>
-                </View>
-              )}
+              renderItem={({ item }) => {
+                if (item.type === 'typing') {
+                  return (
+                    <View style={styles.chatBubbleAI}>
+                      <ActivityIndicator size="small" color="#9C27B0" />
+                    </View>
+                  );
+                }
+
+                return (
+                  <View style={item.type === 'user' ? styles.chatBubbleUser : styles.chatBubbleAI}>
+                    <Text style={styles.chatText}>{item.text}</Text>
+                  </View>
+                );
+              }}
+
               keyExtractor={(_, index) => index.toString()}
               contentContainerStyle={{ paddingBottom: 80 }}
             />

@@ -60,15 +60,18 @@ def load_retriever(persist_path="faiss_index"):
     return vectorstore.as_retriever()
 
 def ask_rag_question(query, retriever):
-    llm = LLMEngine(provider="ollama", model="mistral")
+    llm = LLMEngine(provider="ollama", model="gemma:2b")
     docs = retriever.get_relevant_documents(query)
     context = "\n\n".join(doc.page_content for doc in docs[:5] if hasattr(doc, "page_content"))
-    prompt = ChatPromptTemplate.from_template("""
+
+    prompt = f"""
 Use the following context to answer the question:
 
 {context}
 
-Question: {question}
-""")
-    chain = prompt | llm | StrOutputParser()
-    return chain.invoke({"context": context, "question": query})
+Question: {query}
+""".strip()
+
+    print("🧠 Final Prompt Sent to LLM:\n", prompt[:2000])  # print first 2000 chars
+    response = llm.invoke(prompt)
+    return response
