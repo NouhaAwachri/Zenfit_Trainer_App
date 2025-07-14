@@ -58,8 +58,40 @@ export default function GenProgramScreen({ navigation, user }) {
   const [selectedVersionIndex, setSelectedVersionIndex] = useState(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const flatListRef = useRef(null);
-
+  const [conversations, setConversations] = useState([]);
   const [initializing, setInitializing] = useState(true);
+
+  const loadConversation = async (conversationId) => {
+  try {
+    const res = await fetch(`http://192.168.1.11:5000/generate/messages/${conversationId}`);
+    const data = await res.json();
+
+    const formatted = data.map(msg => ({
+      type: msg.role === 'user' ? 'user' : 'ai',
+      text: msg.content,
+    }));
+
+    setChatHistory(formatted);
+  } catch (e) {
+    console.error("Failed to load conversation messages", e);
+  }
+};
+
+useEffect(() => {
+  const fetchChatHistory = async () => {
+    try {
+      const res = await fetch(`http://192.168.1.11:5000/generate/history/${user?.uid}`);
+      const data = await res.json();
+      setConversations(data); 
+    } catch (e) {
+      console.error("Failed to fetch chat history:", e);
+    }
+  };
+
+  if (chatMode) fetchChatHistory();
+}, [chatMode]);
+
+
 
 useEffect(() => {
   const checkExistingWorkout = async () => {
@@ -87,13 +119,6 @@ useEffect(() => {
 
   checkExistingWorkout();
 }, []);
-
-
-
-
-  useEffect(() => {
-    if (flatListRef.current) flatListRef.current.scrollToEnd({ animated: true });
-  }, [chatHistory]);
 
   useEffect(() => {
     if (generated) {
@@ -271,32 +296,62 @@ if (initializing) {
           
         ) : chatMode ? (
           <>
-          {chatMode && (
+          {chatMode && (planVersions.length > 0 || conversations.length > 0) && (
   <View style={{ marginBottom: 16 }}>
-    <Text style={{ color: '#aaa', marginBottom: 4 }}>📚 Your Previous Programs:</Text>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+    <Text style={{ color: '#aaa', marginBottom: 8, fontWeight: '600' }}>
+      📚 Your Programs & Past Conversations:
+    </Text>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row' }}>
+      {/* Programs */}
       {planVersions.map((plan, idx) => (
         <TouchableOpacity
-          key={idx}
+          key={`plan-${idx}`}
           onPress={() => {
             setGenerated(plan);
             setSelectedVersionIndex(idx);
+            setChatHistory([{ type: 'ai', text: plan }]);
           }}
           style={{
-            padding: 10,
-            marginRight: 8,
+            paddingVertical: 10,
+            paddingHorizontal: 14,
+            marginRight: 10,
             backgroundColor: selectedVersionIndex === idx ? '#9C27B0' : '#333',
-            borderRadius: 12,
+            borderRadius: 16,
+            shadowColor: selectedVersionIndex === idx ? '#9C27B0' : '#000',
+            shadowOpacity: selectedVersionIndex === idx ? 0.6 : 0,
+            shadowRadius: 8,
+            elevation: selectedVersionIndex === idx ? 6 : 0,
           }}
         >
-          <Text style={{ color: '#fff' }}>Plan {idx + 1}</Text>
+          <Text style={{ color: '#fff', fontWeight: '600' }}>Plan {idx + 1}</Text>
+        </TouchableOpacity>
+      ))}
+
+      {/* Spacer if both exist */}
+      {planVersions.length > 0 && conversations.length > 0 && (
+        <View style={{ width: 24 }} />
+      )}
+
+      {/* Conversations */}
+      {conversations.map((conv, idx) => (
+        <TouchableOpacity
+          key={`conv-${conv.conversation_id}`}
+          onPress={() => loadConversation(conv.conversation_id)}
+          style={{
+            paddingVertical: 10,
+            paddingHorizontal: 14,
+            marginRight: 10,
+            backgroundColor: '#333',
+            borderRadius: 16,
+          }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '600' }}>{conv.title || 'Untitled'}</Text>
         </TouchableOpacity>
       ))}
     </ScrollView>
   </View>
 )}
-
-            <FlatList
+        <FlatList
               ref={flatListRef}
               data={chatHistory}
               renderItem={({ item }) => {

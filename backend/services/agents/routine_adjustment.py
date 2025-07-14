@@ -1,12 +1,10 @@
-# agents/routine_adjustment.py
-
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.messages import AIMessage
 
 def routine_adjustment_agent(state, llm):
     user_data = state.get("user_data", {})
-    
+
     # Extract values from user_data safely
     goal = user_data.get("goal", "N/A")
     experience = user_data.get("experience", "N/A")
@@ -14,11 +12,20 @@ def routine_adjustment_agent(state, llm):
     firebase_uid = user_data.get("firebase_uid", "N/A")
     name = user_data.get("name", "athlete")
 
-    # ✅ Use simple variable names in prompt
+    # Stronger prompt with instruction to AVOID jumping if requested
     prompt = ChatPromptTemplate.from_template(
         """You are an expert AI fitness coach.
 
-Given the **current workout plan** and the user's **feedback**, revise the plan accordingly.
+Given the user's **current workout plan** and **feedback**, revise the plan.
+
+⚠️ STRICT INSTRUCTIONS:
+- If the user says "no jumping", **do not** include any jumping exercises like:
+  - Jumping Jacks
+  - Jump rope
+  - Burpees
+  - Box jumps
+  - Mountain climbers
+- Respect injuries, limitations, or preferences mentioned.
 
 ---
 👤 **User Info**:
@@ -27,53 +34,56 @@ Given the **current workout plan** and the user's **feedback**, revise the plan 
 - Experience: {experience}
 - Equipment: {equipment}
 
-🧠 **Current Plan**:
+📋 **Current Plan**:
 {current_plan}
 
 💬 **User Feedback**:
 {feedback}
 ---
 
-🎯 Rewrite the plan **from scratch if needed**, including any new preferences, like adding abs, cardio, or specific body parts.
+🎯 Write a **new plan from scratch if needed**, based on feedback.
 
-Make the tone **friendly and motivational**.
-
-### Response Format:
-- Start with:  
+Use this structure:
+- Start with:
   _"Hey {name}! Based on your goal of {goal} and your feedback, here's an updated routine tailored just for you..."_
 
-- Structure each day like this:
+- Format each day like:
   **Day 1: Upper Body Strength (Approx. 45 mins)**
-  - Warm-up (5 min): Jump rope
+  - Warm-up (5 min): Arm circles
   - Exercise 1 (10 min): Push-ups — 3 sets of 12 reps, 60s rest
-  - Exercise 2 (10 min): Dumbbell Press — 3 sets of 10 reps, 90s rest
   ...
 
+- Avoid jumping if requested.
 - Add estimated **duration** per exercise.
+- Use a friendly, motivating tone.
 
-- End with:
-  ✅ **Tips**: Consistency is key. Stick with it, track your progress, and don't skip recovery!
-  💪 **Keep pushing – you're doing great!**
-
-Output ONLY the updated plan in this format.
+✅ Tips: Stay consistent, track progress, and take rest when needed!
+💪 You're doing great — keep it up!
 """
     )
 
-    # Combine prompt + LLM + output parsing
     chain = prompt | llm | StrOutputParser()
 
-    # Call the chain with preprocessed variables
+    feedback_text = state.get("feedback", "")
+    current_plan = state.get("fitness_plan", "")
+
+    print("📤 Sending to LLM:")
+    print("Feedback:\n", feedback_text)
+    print("Current Plan (first 300 chars):\n", current_plan[:300])
+
     updated_plan = chain.invoke({
         "firebase_uid": firebase_uid,
         "goal": goal,
         "experience": experience,
         "equipment": equipment,
         "name": name,
-        "current_plan": state.get("fitness_plan", ""),
-        "feedback": state.get("parsed_feedback", state.get("feedback", ""))
+        "current_plan": current_plan,
+        "feedback": feedback_text,
     })
 
-    # Update state with new plan and message
+    print("📥 LLM responded with (first 300 chars):\n", updated_plan[:300])
+
+    # Save to state
     state["fitness_plan"] = updated_plan
     state["messages"].append(AIMessage(content=f"🔄 Updated Plan:\n\n{updated_plan}"))
 
