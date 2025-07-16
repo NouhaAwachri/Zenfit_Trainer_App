@@ -1,106 +1,141 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   View,
   Text,
-  ImageBackground,
-  TouchableOpacity,
+  ScrollView,
   StyleSheet,
   Dimensions,
+  ImageBackground,
+  TouchableOpacity,
   StatusBar,
-  ScrollView,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { signOut } from 'firebase/auth';
-import { auth } from '../firebaseConfig';
 
-const { width } = Dimensions.get('window');
-
+const { width, height } = Dimensions.get('window');
 const scale = (multiplier, max) => Math.min(width * multiplier, max);
 
-export default function HomeScreen({ navigation, user }) {
-  const username = user?.displayName || user?.email || 'User'; 
+export default function Welcome({ navigation }) {
+  const [activeBtn, setActiveBtn] = useState('');
 
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Login' }],
-      });
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
+  const handleNav = (target) => {
+    setActiveBtn(target);
+    navigation.navigate(target);
   };
+
+  const features = [
+    {
+      icon: 'barbell',
+      title: 'Personalized Programs',
+      description: 'Tailored workouts based on your goals and fitness level',
+    },
+    {
+      icon: 'trending-up',
+      title: 'Smart Adaptation',
+      description: 'AI adapts to your recovery and fatigue patterns',
+    },
+    {
+      icon: 'analytics',
+      title: 'Progress Tracking',
+      description: 'Detailed insights into your fitness journey',
+    },
+    {
+      icon: 'chatbubbles',
+      title: 'AI Coach Chat',
+      description: '24/7 support from your intelligent fitness assistant',
+    },
+  ];
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
       <ImageBackground
-        source={require('../assets/home.jpg')}
+        source={require('../assets/greyfront.jpg')}
         style={styles.backgroundImage}
         resizeMode="cover"
       >
         <View style={styles.overlay}>
-          {/* ☰ Drawer menu button */}
-          <TouchableOpacity
-            style={styles.menuButton}
-            onPress={() => navigation.openDrawer()}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons name="menu" size={28} color="white" />
-          </TouchableOpacity>
+          {/* Header with Navigation */}
+          <View style={styles.header}>
+            <View style={styles.navbar}>
+              <TouchableOpacity
+                style={[styles.navButton, activeBtn === 'Login' && styles.navButtonActive]}
+                onPress={() => handleNav('Login')}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.navButtonText, activeBtn === 'Login' && styles.navButtonTextActive]}>
+                  Sign In
+                </Text>
+              </TouchableOpacity>
 
-          {/* 👤 Username */}
-          <View style={styles.userInfo}>
-            <Ionicons name="person-circle" size={24} color="#fff" />
-            <Text style={styles.usernameText} numberOfLines={1} ellipsizeMode="tail">
-              Hello, {username}
-            </Text>
+              <TouchableOpacity
+                style={[styles.navButton, activeBtn === 'Signup' && styles.navButtonActive]}
+                onPress={() => handleNav('Signup')}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.navButtonText, activeBtn === 'Signup' && styles.navButtonTextActive]}>
+                  Sign Up
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Main Content */}
           <ScrollView
             contentContainerStyle={styles.contentWrapper}
             keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.title}>AI Personal Trainer</Text>
-            <Text style={styles.subtitle}>Smarter Fitness. Real Results.</Text>
+            {/* Hero Section */}
+            <View style={styles.titleSection}>
+              <View style={styles.brandContainer}>
+                <Ionicons name="fitness" size={48} color="#9C27B0" />
+                <Text style={styles.title}>Zenfit</Text>
+              </View>
+              <Text style={styles.subtitle}>AI Personal Trainer</Text>
+              <Text style={styles.tagline}>
+                Transform your fitness journey with intelligent coaching
+              </Text>
+            </View>
 
-             <TouchableOpacity
-                style={[styles.button, { backgroundColor: '#00796B' }]}  // Teal green
-                onPress={() => navigation.navigate('GenProgram')}
-                activeOpacity={0.7}
+            {/* Features Section */}
+            <Text style={styles.featuresTitle}>Why Choose Zenfit?</Text>
+
+            <View style={styles.cardsContainer}>
+              {features.map((feature, index) => (
+                <View key={index} style={styles.featureCard}>
+                  <View style={styles.featureIcon}>
+                    <Ionicons name={feature.icon} size={24} color="#9C27B0" />
+                  </View>
+                  <Text style={styles.featureTitle}>{feature.title}</Text>
+                  <Text style={styles.featureDescription}>{feature.description}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Call-to-Action Section */}
+            <View style={styles.ctaSection}>
+              <TouchableOpacity
+                style={styles.primaryButton}
+                onPress={() => {
+                  setActiveBtn('');
+                  navigation.navigate('Signup');
+                }}
+                activeOpacity={0.8}
               >
-                <Text style={styles.buttonText}>💬 Generate Workout Program</Text>
+                <Ionicons name="rocket" size={20} color="#fff" />
+                <Text style={styles.primaryText}>Start Your Journey</Text>
               </TouchableOpacity>
 
-
-            <TouchableOpacity
-              style={styles.button}
-              onPress={() => navigation.navigate('Chatbot')}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.buttonText}>💬 Chat with Coach</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.button, styles.secondaryButton]}
-              onPress={() => navigation.navigate('Dashboard')}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.buttonText}>📊 View Progress</Text>
-            </TouchableOpacity>
-
-            {/* Logout Button */}
-            <TouchableOpacity
-              style={[styles.button, { marginTop: 30, backgroundColor: '#E53935' }]}
-              onPress={handleLogout}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.buttonText}>🚪 Logout</Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={() => handleNav('Login')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.secondaryText}>Already have an account?</Text>
+              </TouchableOpacity>
+            </View>
           </ScrollView>
         </View>
       </ImageBackground>
@@ -122,83 +157,188 @@ const styles = StyleSheet.create({
 
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: width * 0.06,
-    paddingTop: 40,
+    backgroundColor: 'rgba(0,0,0,0.75)',
   },
 
-  menuButton: {
-    position: 'absolute',
-    top: Platform.OS === 'android' ? StatusBar.currentHeight + 10 : 20,
-    left: 20,
-    zIndex: 10,
+  header: {
+    alignItems: 'flex-end',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 15 : 15,
+    paddingBottom: 10,
   },
 
-  userInfo: {
-    position: 'absolute',
-    top: Platform.OS === 'android' ? StatusBar.currentHeight + 10 : 20,
-    right: 20,
+  navbar: {
     flexDirection: 'row',
-    alignItems: 'center',
-    zIndex: 10,
-    maxWidth: width * 0.4,
   },
 
-  usernameText: {
+  navButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: 'rgba(156, 39, 176, 0.5)',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginLeft: 12,
+  },
+
+  navButtonActive: {
+    backgroundColor: '#9C27B0',
+    borderColor: '#9C27B0',
+  },
+
+  navButtonText: {
     color: '#fff',
-    fontSize: scale(0.04, 16),
-    marginLeft: 5,
     fontWeight: '600',
+    fontSize: scale(0.035, 14),
+  },
+
+  navButtonTextActive: {
+    color: '#fff',
   },
 
   contentWrapper: {
     flexGrow: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
     paddingBottom: 40,
   },
 
+  titleSection: {
+    alignItems: 'center',
+    marginBottom: 30,
+  },
+
+  brandContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+
   title: {
-    fontSize: scale(0.09, 36),
-    color: '#fff',
+    fontSize: scale(0.08, 32),
     fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 10,
+    color: '#fff',
+    marginLeft: 12,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
 
   subtitle: {
-    fontSize: scale(0.05, 22),
-    color: '#eee',
-    textAlign: 'center',
-    marginBottom: 30,
-    paddingHorizontal: 10,
+    fontSize: scale(0.05, 20),
+    color: '#9C27B0',
+    fontWeight: '600',
+    marginBottom: 6,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
 
-  button: {
-    backgroundColor: '#9C27B0',
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    borderRadius: 30,
-    width: width * 0.7,
-    maxWidth: 300,
+  tagline: {
+    fontSize: scale(0.04, 16),
+    color: '#E0E0E0',
+    textAlign: 'center',
+    lineHeight: 22,
+    paddingHorizontal: 20,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+
+  featuresTitle: {
+    fontSize: scale(0.055, 22),
+    color: '#fff',
+    fontWeight: 'bold',
+    textAlign: 'center',
     marginBottom: 20,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+  },
+
+  cardsContainer: {
+    marginBottom: 30,
+  },
+
+  featureCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 16,
+    padding: 20,
     alignItems: 'center',
-    shadowColor: '#9C27B0',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
     elevation: 5,
   },
 
-  secondaryButton: {
-    backgroundColor: 'transparent',
-    borderColor: '#fff',
-    borderWidth: 2,
+  featureIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(156, 39, 176, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
   },
 
-  buttonText: {
+  featureTitle: {
+    fontSize: scale(0.042, 17),
     color: '#fff',
-    fontSize: scale(0.038, 15),
     fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+
+  featureDescription: {
+    fontSize: scale(0.035, 14),
+    color: '#E0E0E0',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+
+  ctaSection: {
+    alignItems: 'center',
+    paddingTop: 15,
+  },
+
+  primaryButton: {
+    backgroundColor: '#9C27B0',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 30,
+    width: '80%',
+    maxWidth: 320,
+    justifyContent: 'center',
+    marginBottom: 16,
+    shadowColor: '#9C27B0',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+
+  primaryText: {
+    color: '#fff',
+    fontSize: scale(0.045, 18),
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+
+  secondaryButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+  },
+
+  secondaryText: {
+    color: '#E0E0E0',
+    fontSize: scale(0.038, 15),
+    fontWeight: '500',
+    textDecorationLine: 'underline',
   },
 });

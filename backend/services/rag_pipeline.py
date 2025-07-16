@@ -60,7 +60,7 @@ def load_retriever(persist_path="faiss_index"):
     return vectorstore.as_retriever()
 
 def ask_rag_question(query, retriever):
-    llm = LLMEngine(provider="ollama", model="gemma:2b")
+    llm = LLMEngine(provider="ollama", model="mistral")
     docs = retriever.get_relevant_documents(query)
     context = "\n\n".join(doc.page_content for doc in docs[:5] if hasattr(doc, "page_content"))
 
