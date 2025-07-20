@@ -58,7 +58,6 @@ class LLMEngine(Runnable):
     def _get_openrouter_model(self, model_name):
         mapping = {
             "deepseek": "deepseek/deepseek-r1-0528-qwen3-8b:free",
-            "gpt3.5": "openai/gpt-3.5-turbo",
             "mistral": "mistralai/mistral-7b-instruct:free",
         }
         return mapping.get(model_name, model_name)

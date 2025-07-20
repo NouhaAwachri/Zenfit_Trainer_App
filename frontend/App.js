@@ -18,6 +18,7 @@ import Welcome from './screens/Welcome';
 import HomeScreen from './screens/HomeScreen';
 import ChatbotScreen from './screens/ChatbotScreen';
 import GenProgramScreen from './screens/GenProgramScreen'; 
+import WorkoutLogsScreen from './screens/WorkoutLogsScreen'; // Assuming you have a WorkoutLog screen
 import DashboardScreen from './screens/DashboardScreen';   
 import Login from './screens/Login';
 import Signup from './screens/Signup';
@@ -35,7 +36,8 @@ function CustomDrawerContent(props) {
     { label: '🏠 Home', route: 'HomeScreen' },
     { label: '💬 Generate Workout Program', route: 'GenProgram' },
     { label: '💬 Chat with Coach', route: 'Chatbot' },
-    { label: '📊 Progress Dashboard', route: 'Dashboard' }, 
+    { label: '📊 Workout Logs', route: 'WorkoutLogs' },
+    { label: '📊 Progress Dashboard', route: 'Dashboard' },
   ];
 
   return (
@@ -87,6 +89,9 @@ function AppDrawer({ logout, user }) {
       </Drawer.Screen>
       <Drawer.Screen name="Chatbot">
         {(props) => <ChatbotScreen {...props} user={user} />}
+      </Drawer.Screen>
+      <Drawer.Screen name="WorkoutLogs">
+        {(props) => <WorkoutLogsScreen {...props} user={user} />}
       </Drawer.Screen>
       <Drawer.Screen name="Dashboard">
         {(props) => <DashboardScreen {...props} user={user} />}

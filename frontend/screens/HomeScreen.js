@@ -1,83 +1,116 @@
-import React, { useState } from 'react';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React from 'react';
 import {
   View,
   Text,
-  ScrollView,
-  StyleSheet,
-  Dimensions,
   ImageBackground,
   TouchableOpacity,
+  StyleSheet,
+  Dimensions,
   StatusBar,
+  ScrollView,
   Platform,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { signOut } from 'firebase/auth';
+import { auth } from '../firebaseConfig';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width, height } = Dimensions.get('window');
+
 const scale = (multiplier, max) => Math.min(width * multiplier, max);
 
-export default function Welcome({ navigation }) {
-  const [activeBtn, setActiveBtn] = useState('');
+export default function HomeScreen({ navigation, user }) {
+  const fadeAnim = React.useRef(new Animated.Value(0)).current;
+  const slideAnim = React.useRef(new Animated.Value(50)).current;
 
-  const handleNav = (target) => {
-    setActiveBtn(target);
-    navigation.navigate(target);
+  const username = user?.displayName || user?.email || 'User';
+
+  React.useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' }],
+      });
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   };
 
-  const features = [
-    {
-      icon: 'barbell',
-      title: 'Personalized Programs',
-      description: 'Tailored workouts based on your goals and fitness level',
-    },
-    {
-      icon: 'trending-up',
-      title: 'Smart Adaptation',
-      description: 'AI adapts to your recovery and fatigue patterns',
-    },
-    {
-      icon: 'analytics',
-      title: 'Progress Tracking',
-      description: 'Detailed insights into your fitness journey',
-    },
-    {
-      icon: 'chatbubbles',
-      title: 'AI Coach Chat',
-      description: '24/7 support from your intelligent fitness assistant',
-    },
-  ];
+  const ButtonComponent = ({ onPress, style, children, gradient = false }) => (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.8}
+      style={[styles.buttonContainer, style]}
+    >
+      {gradient ? (
+        <LinearGradient
+          colors={['#9C27B0', '#7B1FA2']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.gradientButton}
+        >
+          {children}
+        </LinearGradient>
+      ) : (
+        <View style={styles.regularButton}>
+          {children}
+        </View>
+      )}
+    </TouchableOpacity>
+  );
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <ImageBackground
-        source={require('../assets/greyfront.jpg')}
+        source={require('../assets/home.jpg')}
         style={styles.backgroundImage}
         resizeMode="cover"
       >
-        <View style={styles.overlay}>
-          {/* Header with Navigation */}
+        <LinearGradient
+          colors={['rgba(0,0,0,0.4)', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.8)']}
+          style={styles.overlay}
+        >
+          {/* Header */}
           <View style={styles.header}>
-            <View style={styles.navbar}>
-              <TouchableOpacity
-                style={[styles.navButton, activeBtn === 'Login' && styles.navButtonActive]}
-                onPress={() => handleNav('Login')}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.navButtonText, activeBtn === 'Login' && styles.navButtonTextActive]}>
-                  Sign In
-                </Text>
-              </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.menuButton}
+              onPress={() => navigation.openDrawer()}
+              hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+            >
+              <View style={styles.menuIconContainer}>
+                <Ionicons name="menu" size={24} color="white" />
+              </View>
+            </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.navButton, activeBtn === 'Signup' && styles.navButtonActive]}
-                onPress={() => handleNav('Signup')}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.navButtonText, activeBtn === 'Signup' && styles.navButtonTextActive]}>
-                  Sign Up
+            <View style={styles.userInfo}>
+              <View style={styles.userIconContainer}>
+                <Ionicons name="person-circle" size={28} color="#9C27B0" />
+              </View>
+              <View style={styles.userTextContainer}>
+                <Text style={styles.greetingText}>Hello</Text>
+                <Text style={styles.usernameText} numberOfLines={1} ellipsizeMode="tail">
+                  {username}
                 </Text>
-              </TouchableOpacity>
+              </View>
             </View>
           </View>
 
@@ -87,57 +120,149 @@ export default function Welcome({ navigation }) {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            {/* Hero Section */}
-            <View style={styles.titleSection}>
-              <View style={styles.brandContainer}>
-                <Ionicons name="fitness" size={48} color="#9C27B0" />
-                <Text style={styles.title}>Zenfit</Text>
+            <Animated.View
+              style={[
+                styles.titleContainer,
+                {
+                  opacity: fadeAnim,
+                  transform: [{ translateY: slideAnim }],
+                },
+              ]}
+            >
+              <Text style={styles.title}>AI Personal Trainer</Text>
+              <View style={styles.subtitleContainer}>
+                <View style={styles.accentLine} />
+                <Text style={styles.subtitle}>Smarter Fitness. Real Results.</Text>
+                <View style={styles.accentLine} />
               </View>
-              <Text style={styles.subtitle}>AI Personal Trainer</Text>
-              <Text style={styles.tagline}>
-                Transform your fitness journey with intelligent coaching
-              </Text>
-            </View>
+            </Animated.View>
 
-            {/* Features Section */}
-            <Text style={styles.featuresTitle}>Why Choose Zenfit?</Text>
-
-            <View style={styles.cardsContainer}>
-              {features.map((feature, index) => (
-                <View key={index} style={styles.featureCard}>
-                  <View style={styles.featureIcon}>
-                    <Ionicons name={feature.icon} size={24} color="#9C27B0" />
+            <Animated.View
+              style={[
+                styles.buttonsContainer,
+                {
+                  opacity: fadeAnim,
+                  transform: [{ translateY: slideAnim }],
+                },
+              ]}
+            >
+              {/* Generate Program Button */}
+              <ButtonComponent
+                onPress={() => navigation.navigate('GenProgram')}
+                gradient={true}
+              >
+                <View style={styles.buttonContent}>
+                  <View style={styles.buttonIconContainer}>
+                    <Ionicons name="fitness" size={24} color="white" />
                   </View>
-                  <Text style={styles.featureTitle}>{feature.title}</Text>
-                  <Text style={styles.featureDescription}>{feature.description}</Text>
+                  <View style={styles.buttonTextContainer}>
+                    <Text style={styles.buttonTitle}>Generate Workout</Text>
+                    <Text style={styles.buttonSubtitle}>Create personalized programs</Text>
+                  </View>
+                  <Ionicons name="arrow-forward" size={20} color="rgba(255,255,255,0.8)" />
                 </View>
-              ))}
-            </View>
+              </ButtonComponent>
 
-            {/* Call-to-Action Section */}
-            <View style={styles.ctaSection}>
+              {/* Chat Button */}
+              <ButtonComponent
+                onPress={() => navigation.navigate('Chatbot')}
+                style={{ backgroundColor: '#00796B' }}
+              >
+                <View style={styles.buttonContent}>
+                  <View style={styles.buttonIconContainer}>
+                    <Ionicons name="chatbubbles" size={24} color="white" />
+                  </View>
+                  <View style={styles.buttonTextContainer}>
+                    <Text style={styles.buttonTitle}>Chat with Coach</Text>
+                    <Text style={styles.buttonSubtitle}>Get instant fitness advice</Text>
+                  </View>
+                  <Ionicons name="arrow-forward" size={20} color="rgba(255,255,255,0.8)" />
+                </View>
+              </ButtonComponent>
+
+               <ButtonComponent
+                onPress={() => navigation.navigate('WorkoutLogs')}
+                gradient={true}
+              >
+                <View style={styles.buttonContent}>
+                  <View style={styles.buttonIconContainer}>
+                    <Ionicons name="analytics" size={24} color="rgba(255,255,255,0.8)" />
+                  </View>
+                  <View style={styles.buttonTextContainer}>
+                    <Text style={styles.buttonTitle}>Log your workout sessions </Text>
+                    <Text style={styles.buttonSubtitle}>Keep track of your progress</Text>
+                  </View>
+                  <Ionicons name="arrow-forward" size={20} color="rgba(255,255,255,0.8)" />
+                </View>
+              </ButtonComponent>
+
+              {/* Progress Button */}
+              <ButtonComponent
+                onPress={() => navigation.navigate('Dashboard')}
+                style={styles.outlineButton}
+              >
+                <View style={styles.buttonContent}>
+                  <View style={styles.buttonIconContainer}>
+                    <Ionicons name="analytics" size={24} color="#9C27B0" />
+                  </View>
+                  <View style={styles.buttonTextContainer}>
+                    <Text style={[styles.buttonTitle, { color: '#fff' }]}>View Progress</Text>
+                    <Text style={[styles.buttonSubtitle, { color: 'rgba(255,255,255,0.8)' }]}>
+                      Track your achievements
+                    </Text>
+                  </View>
+                  <Ionicons name="arrow-forward" size={20} color="rgba(255,255,255,0.8)" />
+                </View>
+              </ButtonComponent>
+            </Animated.View>
+
+            {/* Stats Cards */}
+            <Animated.View
+              style={[
+                styles.statsContainer,
+                {
+                  opacity: fadeAnim,
+                  transform: [{ translateY: slideAnim }],
+                },
+              ]}
+            >
+              <View style={styles.statsCard}>
+                <Ionicons name="flame" size={24} color="#FF6B35" />
+                <Text style={styles.statsNumber}>0</Text>
+                <Text style={styles.statsLabel}>Workouts</Text>
+              </View>
+              <View style={styles.statsCard}>
+                <Ionicons name="time" size={24} color="#4CAF50" />
+                <Text style={styles.statsNumber}>0</Text>
+                <Text style={styles.statsLabel}>Minutes</Text>
+              </View>
+              <View style={styles.statsCard}>
+                <Ionicons name="trophy" size={24} color="#FFD700" />
+                <Text style={styles.statsNumber}>0</Text>
+                <Text style={styles.statsLabel}>Goals</Text>
+              </View>
+            </Animated.View>
+
+            {/* Logout Button */}
+            <Animated.View
+              style={[
+                {
+                  opacity: fadeAnim,
+                  transform: [{ translateY: slideAnim }],
+                },
+              ]}
+            >
               <TouchableOpacity
-                style={styles.primaryButton}
-                onPress={() => {
-                  setActiveBtn('');
-                  navigation.navigate('Signup');
-                }}
+                style={styles.logoutButton}
+                onPress={handleLogout}
                 activeOpacity={0.8}
               >
-                <Ionicons name="rocket" size={20} color="#fff" />
-                <Text style={styles.primaryText}>Start Your Journey</Text>
+                <Ionicons name="log-out-outline" size={20} color="#E53935" />
+                <Text style={styles.logoutText}>Logout</Text>
               </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.secondaryButton}
-                onPress={() => handleNav('Login')}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.secondaryText}>Already have an account?</Text>
-              </TouchableOpacity>
-            </View>
+            </Animated.View>
           </ScrollView>
-        </View>
+        </LinearGradient>
       </ImageBackground>
     </SafeAreaView>
   );
@@ -157,188 +282,213 @@ const styles = StyleSheet.create({
 
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.75)',
+    paddingHorizontal: width * 0.05,
   },
 
   header: {
-    alignItems: 'flex-end',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 15 : 15,
-    paddingBottom: 10,
-  },
-
-  navbar: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 20 : 60,
+    paddingBottom: 20,
   },
 
-  navButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 25,
-    borderWidth: 1,
-    borderColor: 'rgba(156, 39, 176, 0.5)',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    marginLeft: 12,
+  menuButton: {
+    padding: 8,
   },
 
-  navButtonActive: {
-    backgroundColor: '#9C27B0',
-    borderColor: '#9C27B0',
+  menuIconContainer: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 12,
+    padding: 8,
+    backdropFilter: 'blur(10px)',
   },
 
-  navButtonText: {
+  userInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    maxWidth: width * 0.5,
+  },
+
+  userIconContainer: {
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    borderRadius: 20,
+    padding: 2,
+    marginRight: 12,
+  },
+
+  userTextContainer: {
+    alignItems: 'flex-end',
+  },
+
+  greetingText: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: scale(0.032, 12),
+    fontWeight: '400',
+  },
+
+  usernameText: {
     color: '#fff',
+    fontSize: scale(0.04, 16),
     fontWeight: '600',
-    fontSize: scale(0.035, 14),
-  },
-
-  navButtonTextActive: {
-    color: '#fff',
   },
 
   contentWrapper: {
     flexGrow: 1,
-    paddingHorizontal: 20,
-    paddingTop: 20,
+    alignItems: 'center',
     paddingBottom: 40,
   },
 
-  titleSection: {
+  titleContainer: {
     alignItems: 'center',
-    marginBottom: 30,
-  },
-
-  brandContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 40,
   },
 
   title: {
     fontSize: scale(0.08, 32),
-    fontWeight: 'bold',
-    color: '#fff',
-    marginLeft: 12,
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
-  },
-
-  subtitle: {
-    fontSize: scale(0.05, 20),
-    color: '#9C27B0',
-    fontWeight: '600',
-    marginBottom: 6,
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-
-  tagline: {
-    fontSize: scale(0.04, 16),
-    color: '#E0E0E0',
-    textAlign: 'center',
-    lineHeight: 22,
-    paddingHorizontal: 20,
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-
-  featuresTitle: {
-    fontSize: scale(0.055, 22),
     color: '#fff',
     fontWeight: 'bold',
     textAlign: 'center',
     marginBottom: 20,
-    textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
+    letterSpacing: 1,
   },
 
-  cardsContainer: {
-    marginBottom: 30,
-  },
-
-  featureCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 16,
-    padding: 20,
-    alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-
-  featureIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: 'rgba(156, 39, 176, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-
-  featureTitle: {
-    fontSize: scale(0.042, 17),
-    color: '#fff',
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-
-  featureDescription: {
-    fontSize: scale(0.035, 14),
-    color: '#E0E0E0',
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-
-  ctaSection: {
-    alignItems: 'center',
-    paddingTop: 15,
-  },
-
-  primaryButton: {
-    backgroundColor: '#9C27B0',
+  subtitleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    borderRadius: 30,
-    width: '80%',
-    maxWidth: 320,
-    justifyContent: 'center',
-    marginBottom: 16,
-    shadowColor: '#9C27B0',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-
-  primaryText: {
-    color: '#fff',
-    fontSize: scale(0.045, 18),
-    fontWeight: 'bold',
-    marginLeft: 8,
-  },
-
-  secondaryButton: {
-    paddingVertical: 12,
     paddingHorizontal: 20,
   },
 
-  secondaryText: {
-    color: '#E0E0E0',
-    fontSize: scale(0.038, 15),
+  accentLine: {
+    height: 2,
+    width: 30,
+    backgroundColor: '#9C27B0',
+    marginHorizontal: 15,
+  },
+
+  subtitle: {
+    fontSize: scale(0.042, 16),
+    color: '#eee',
+    textAlign: 'center',
+    fontWeight: '300',
+    letterSpacing: 0.5,
+  },
+
+  buttonsContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 30,
+  },
+
+  buttonContainer: {
+    width: width * 0.85,
+    maxWidth: 350,
+    marginBottom: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+
+  gradientButton: {
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+  },
+
+  regularButton: {
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    backgroundColor: '#00796B',
+    borderRadius: 16,
+  },
+
+  outlineButton: {
+    backgroundColor: 'transparent',
+    borderColor: 'rgba(156, 39, 176, 0.8)',
+    borderWidth: 2,
+    borderRadius: 16,
+  },
+
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  buttonIconContainer: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 12,
+    padding: 8,
+  },
+
+  buttonTextContainer: {
+    flex: 1,
+    marginLeft: 16,
+    alignItems: 'flex-start',
+  },
+
+  buttonTitle: {
+    color: '#fff',
+    fontSize: scale(0.042, 16),
+    fontWeight: 'bold',
+    marginBottom: 2,
+  },
+
+  buttonSubtitle: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: scale(0.032, 12),
+    fontWeight: '400',
+  },
+
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+    marginBottom: 30,
+    paddingHorizontal: 10,
+  },
+
+  statsCard: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    flex: 1,
+    marginHorizontal: 8,
+    backdropFilter: 'blur(10px)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+
+  statsNumber: {
+    color: '#fff',
+    fontSize: scale(0.06, 24),
+    fontWeight: 'bold',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+
+  statsLabel: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: scale(0.032, 12),
     fontWeight: '500',
-    textDecorationLine: 'underline',
+  },
+
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(229, 57, 53, 0.1)',
+    borderColor: '#E53935',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    marginTop: 20,
+  },
+
+  logoutText: {
+    color: '#E53935',
+    fontSize: scale(0.038, 14),
+    fontWeight: '600',
+    marginLeft: 8,
   },
 });

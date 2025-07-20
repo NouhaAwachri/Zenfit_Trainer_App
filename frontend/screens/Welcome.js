@@ -24,6 +24,9 @@ export default function Welcome({ navigation }) {
     navigation.navigate(target);
   };
 
+
+
+
   const features = [
     {
       icon: 'barbell',
