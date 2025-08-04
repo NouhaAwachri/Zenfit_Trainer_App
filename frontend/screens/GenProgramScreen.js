@@ -15,6 +15,7 @@ import {
   Linking,
   ActivityIndicator,
   Animated,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,8 +26,145 @@ const { width, height } = Dimensions.get('window');
 const maleImageUri = 'https://img.icons8.com/color/96/male.png';
 const femaleImageUri = 'https://img.icons8.com/color/96/female.png';
 
+// Dropdown Component
+const CustomDropdown = ({ 
+  options = [], 
+  value, 
+  onSelect, 
+  placeholder = "Select an option", 
+  style = {},
+  disabled = false 
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const slideAnim = useRef(new Animated.Value(0)).current;
+
+  const filteredOptions = options.filter(option =>
+    option.toLowerCase().includes(searchText.toLowerCase())
+  );
+
+  const toggleDropdown = () => {
+    if (disabled) return;
+    
+    if (isOpen) {
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }).start(() => setIsOpen(false));
+    } else {
+      setIsOpen(true);
+      Animated.timing(slideAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }).start();
+    }
+  };
+
+  const selectOption = (option) => {
+    onSelect(option);
+    setSearchText('');
+    Animated.timing(slideAnim, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => setIsOpen(false));
+  };
+
+  return (
+    <View style={[styles.dropdownContainer, style]}>
+      <TouchableOpacity
+        style={[
+          styles.dropdownButton,
+          disabled && styles.dropdownButtonDisabled,
+          isOpen && styles.dropdownButtonOpen
+        ]}
+        onPress={toggleDropdown}
+        activeOpacity={0.8}
+      >
+        <Text style={[
+          styles.dropdownButtonText,
+          !value && styles.dropdownPlaceholder
+        ]}>
+          {value || placeholder}
+        </Text>
+        <Animated.View
+          style={{
+            transform: [{
+              rotate: slideAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['0deg', '180deg'],
+              })
+            }]
+          }}
+        >
+          <Ionicons name="chevron-down" size={20} color="#666" />
+        </Animated.View>
+      </TouchableOpacity>
+
+      <Modal
+        visible={isOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsOpen(false)}
+      >
+        <TouchableOpacity
+          style={styles.dropdownOverlay}
+          activeOpacity={1}
+          onPress={() => setIsOpen(false)}
+        >
+          <View style={styles.dropdownModal}>
+            <View style={styles.dropdownHeader}>
+              <Text style={styles.dropdownTitle}>Select Option</Text>
+              <TouchableOpacity
+                onPress={() => setIsOpen(false)}
+                style={styles.dropdownCloseButton}
+              >
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={filteredOptions}
+              keyExtractor={(item, index) => `${item}-${index}`}
+              style={styles.dropdownList}
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.dropdownOption,
+                    item === value && styles.dropdownOptionSelected
+                  ]}
+                  onPress={() => selectOption(item)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[
+                    styles.dropdownOptionText,
+                    item === value && styles.dropdownOptionTextSelected
+                  ]}>
+                    {item}
+                  </Text>
+                  {item === value && (
+                    <Ionicons name="checkmark" size={20} color="#6C63FF" />
+                  )}
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={() => (
+                <View style={styles.emptyDropdown}>
+                  <Text style={styles.emptyDropdownText}>No options found</Text>
+                </View>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </View>
+  );
+};
+
 export default function GenProgramScreen({ navigation, user }) {
   const username = user?.displayName || user?.email?.split('@')[0] || 'User';
+  
   const questions = [
     "What's your gender?",
     "How old are you?",
@@ -57,6 +195,66 @@ export default function GenProgramScreen({ navigation, user }) {
     "equipment", "style"
   ];
 
+  // Dropdown options for each question
+  const dropdownOptions = {
+    goal: [
+      "Muscle Gain",
+      "Fat Loss",
+      "Strength Building",
+      "Endurance",
+      "General Fitness",
+      "Athletic Performance",
+      "Flexibility & Mobility",
+      "Body Recomposition",
+      "Powerlifting",
+      "Bodybuilding"
+    ],
+    experience: [
+      "Complete Beginner",
+      "Beginner (1-6 months)",
+      "Intermediate (6 months - 2 years)",
+      "Advanced (2-5 years)",
+      "Expert (5+ years)"
+    ],
+    days_per_week: [
+      "1 day",
+      "2 days",
+      "3 days",
+      "4 days",
+      "5 days",
+      "6 days",
+      "7 days"
+    ],
+    equipment: [
+      "Full Gym Access",
+      "Home Gym (Weights & Machines)",
+      "Basic Home Equipment (Dumbbells, Resistance Bands)",
+      "Bodyweight Only",
+      "Minimal Equipment (Dumbbells Only)",
+      "Resistance Bands Only",
+      "Kettlebells Only",
+      "Outdoor/Park Equipment"
+    ],
+    style: [
+      "Strength Training",
+      "HIIT (High Intensity Interval Training)",
+      "Cardio Focus",
+      "Bodybuilding",
+      "Powerlifting",
+      "CrossFit Style",
+      "Yoga & Flexibility",
+      "Circuit Training",
+      "Functional Training",
+      "Sports-Specific Training"
+    ]
+  };
+
+  // Questions that should use dropdowns
+  const dropdownQuestions = ["goal", "experience", "days_per_week", "equipment", "style"];
+  
+  // Questions that should use numeric input
+  const numericQuestions = ["age", "height", "weight"];
+
   const [answers, setAnswers] = useState({});
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [input, setInput] = useState('');
@@ -71,6 +269,7 @@ export default function GenProgramScreen({ navigation, user }) {
   const [conversations, setConversations] = useState([]);
   const [initializing, setInitializing] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
+  const [dropdownValue, setDropdownValue] = useState('');
   
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
@@ -79,7 +278,7 @@ export default function GenProgramScreen({ navigation, user }) {
 
   const loadConversation = async (conversationId) => {
     try {
-      const res = await fetch(`http://192.168.1.8:5000/generate/messages/${conversationId}`);
+      const res = await fetch(`http://192.168.1.10:5000/generate/messages/${conversationId}`);
       const data = await res.json();
       const formatted = data.map(msg => ({
         type: msg.role === 'user' ? 'user' : 'ai',
@@ -94,8 +293,9 @@ export default function GenProgramScreen({ navigation, user }) {
   useEffect(() => {
     const fetchChatHistory = async () => {
       try {
-        const res = await fetch(`http://192.168.1.8:5000/generate/history/${user?.uid}`);
+        const res = await fetch(`http://192.168.1.10:5000/generate/history/${user?.uid}`);
         const data = await res.json();
+        console.log("User ID used:", user?.uid);
         setConversations(data);
       } catch (e) {
         console.error("Failed to fetch chat history:", e);
@@ -107,7 +307,7 @@ export default function GenProgramScreen({ navigation, user }) {
   useEffect(() => {
     const checkExistingWorkout = async () => {
       try {
-        const response = await fetch('http://192.168.1.8:5000/generate/check-existing', {
+        const response = await fetch('http://192.168.1.10:5000/generate/check-existing', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ firebase_uid: user?.uid }),
@@ -119,7 +319,6 @@ export default function GenProgramScreen({ navigation, user }) {
           setSelectedVersionIndex(0);
           setChatMode(true);
           setChatHistory([{ type: 'ai', text: data.latest_program }]);
-
         }
       } catch (e) {
         console.error("Failed to check existing workout:", e);
@@ -134,6 +333,10 @@ export default function GenProgramScreen({ navigation, user }) {
     if (currentQuestionIndex >= 0) {
       fadeAnim.setValue(0);
       slideAnim.setValue(50);
+      setInput('');
+      setDropdownValue('');
+      setSelectedGender(null);
+      
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 1,
@@ -149,19 +352,29 @@ export default function GenProgramScreen({ navigation, user }) {
     }
   }, [currentQuestionIndex]);
 
+  const getCurrentInputValue = () => {
+    const currentKey = keys[currentQuestionIndex];
+    if (currentKey === "gender") return selectedGender;
+    if (dropdownQuestions.includes(currentKey)) return dropdownValue;
+    return input.trim();
+  };
+
+  const isCurrentAnswerValid = () => {
+    const value = getCurrentInputValue();
+    return value && value.length > 0;
+  };
+
   const handleNext = async () => {
-    const answerValue = currentQuestionIndex === 0 ? selectedGender : input.trim();
+    const answerValue = getCurrentInputValue();
     if (!answerValue) return;
     
     const updatedAnswers = { ...answers, [keys[currentQuestionIndex]]: answerValue };
     setAnswers(updatedAnswers);
-    setInput('');
-    if (currentQuestionIndex === 0) setSelectedGender(null);
 
     if (currentQuestionIndex === questions.length - 1) {
       setLoading(true);
       try {
-        const response = await fetch('http://192.168.1.8:5000/generate/generate-workout', {
+        const response = await fetch('http://192.168.1.10:5000/generate/generate-workout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ firebase_uid: user?.uid, ...updatedAnswers }),
@@ -182,8 +395,9 @@ export default function GenProgramScreen({ navigation, user }) {
       } finally {
         setLoading(false);
       }
+    } else {
+      setCurrentQuestionIndex(prev => prev + 1);
     }
-    setCurrentQuestionIndex(prev => prev + 1);
   };
 
   const handleFollowUpSend = async () => {
@@ -194,23 +408,23 @@ export default function GenProgramScreen({ navigation, user }) {
     setChatHistory(prev => [...prev, userMessage, typingMessage]);
     setChatInput('');
 
-    // Auto-scroll to bottom
     setTimeout(() => {
       flatListRef.current?.scrollToEnd({ animated: true });
     }, 100);
 
     try {
-      const response = await fetch('http://192.168.1.8:5000/generate/chat-follow-up', {
+      const response = await fetch('http://192.168.1.10:5000/generate/chat-follow-up', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           firebase_uid: user?.uid,
-          feedback: chatInput,
+          current_plan: generated,
+          feedback: chatInput
         }),
       });
 
       const data = await response.json();
-      const aiText = data.adjusted_program || data.error || '❌ No response';
+      const aiText = data.response || data.new_program || data.current_program || data.error || '❌ No response';
 
       setChatHistory(prev => {
         const withoutTyping = prev.filter(msg => msg.type !== 'typing');
@@ -234,7 +448,7 @@ export default function GenProgramScreen({ navigation, user }) {
 
   const handleDownload = async () => {
     try {
-      const response = await fetch('http://192.168.1.8:5000/generate/pdf', {
+      const response = await fetch('http://192.168.1.10:5000/generate/pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ firebase_uid: user?.uid, version: selectedVersionIndex ?? 0 }),
@@ -259,6 +473,7 @@ export default function GenProgramScreen({ navigation, user }) {
     setPlanVersions([]);
     setSelectedVersionIndex(null);
     setShowHistory(false);
+    setDropdownValue('');
   };
 
   const renderGenderSelection = () => (
@@ -286,6 +501,41 @@ export default function GenProgramScreen({ navigation, user }) {
       ))}
     </View>
   );
+
+  const renderQuestionInput = () => {
+    const currentKey = keys[currentQuestionIndex];
+    
+    if (currentKey === "gender") {
+      return renderGenderSelection();
+    }
+    
+    if (dropdownQuestions.includes(currentKey)) {
+      return (
+        <CustomDropdown
+          options={dropdownOptions[currentKey] || []}
+          value={dropdownValue}
+          onSelect={setDropdownValue}
+          placeholder={`Select ${currentKey.replace('_', ' ')}`}
+          style={styles.dropdownInput}
+        />
+      );
+    }
+    
+    return (
+      <TextInput
+        ref={textInputRef}
+        value={input}
+        onChangeText={setInput}
+        placeholder="Type your answer..."
+        placeholderTextColor="#999"
+        keyboardType={numericQuestions.includes(currentKey) ? 'numeric' : 'default'}
+        style={styles.input}
+        multiline={false}
+        returnKeyType="done"
+        onSubmitEditing={handleNext}
+      />
+    );
+  };
 
   const renderQuestionProgress = () => (
     <View style={styles.progressContainer}>
@@ -410,25 +660,8 @@ export default function GenProgramScreen({ navigation, user }) {
                   <ActivityIndicator size="large" color="#6C63FF" />
                   <Text style={styles.loadingText}>Generating your program...</Text>
                 </View>
-              ) : currentQuestionIndex === 0 ? (
-                renderGenderSelection()
               ) : (
-                <TextInput
-                  ref={textInputRef}
-                  value={input}
-                  onChangeText={setInput}
-                  placeholder="Type your answer..."
-                  placeholderTextColor="#999"
-                  keyboardType={
-                    ['age', 'height', 'weight', 'days_per_week'].includes(keys[currentQuestionIndex])
-                      ? 'numeric'
-                      : 'default'
-                  }
-                  style={styles.input}
-                  multiline={false}
-                  returnKeyType="done"
-                  onSubmitEditing={handleNext}
-                />
+                renderQuestionInput()
               )}
             </Animated.View>
 
@@ -436,10 +669,10 @@ export default function GenProgramScreen({ navigation, user }) {
               <TouchableOpacity
                 style={[
                   styles.nextButton,
-                  (!input.trim() && !selectedGender) && styles.nextButtonDisabled
+                  !isCurrentAnswerValid() && styles.nextButtonDisabled
                 ]}
                 onPress={handleNext}
-                disabled={!input.trim() && !selectedGender}
+                disabled={!isCurrentAnswerValid()}
                 activeOpacity={0.8}
               >
                 <LinearGradient
@@ -455,17 +688,11 @@ export default function GenProgramScreen({ navigation, user }) {
             )}
           </View>
         ) : (
-          // Chat Mode
+          // Chat Mode (keeping existing chat implementation)
           <View style={styles.chatContainer}>
             {/* Quick Actions */}
             <View style={styles.quickActions}>
-              <TouchableOpacity
-                style={styles.quickActionButton}
-                onPress={handleDownload}
-              >
-                <Ionicons name="download" size={16} color="#6C63FF" />
-                <Text style={styles.quickActionText}>PDF</Text>
-              </TouchableOpacity>
+             
               <TouchableOpacity
                 style={styles.quickActionButton}
                 onPress={() => setShowHistory(!showHistory)}
@@ -487,20 +714,21 @@ export default function GenProgramScreen({ navigation, user }) {
               <View style={styles.historyPanel}>
                 <Text style={styles.historyTitle}>Recent Plans</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  {planVersions.map((plan, idx) => (
+                  {conversations.map((conv, idx) => (
                     <TouchableOpacity
-                      key={`plan-${idx}`}
+                      key={`conv-${conv.conversation_id || idx}`}
                       style={[
                         styles.historyItem,
                         selectedVersionIndex === idx && styles.historyItemActive
                       ]}
-                      onPress={() => {
-                        setGenerated(plan);
+                      onPress={async () => {
                         setSelectedVersionIndex(idx);
-                        setChatHistory([{ type: 'ai', text: plan }]);
+                        await loadConversation(conv.conversation_id); // fetch messages by ID
                       }}
                     >
-                      <Text style={styles.historyItemText}>Plan {idx + 1}</Text>
+                      <Text style={styles.historyItemText}>Plan {idx + 1}
+                    {conv.title ? conv.title.slice(0, 15) : `Plan ${idx + 1}`}
+                    </Text>
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
@@ -641,6 +869,821 @@ const styles = StyleSheet.create({
     color: '#333',
     textAlign: 'center',
     marginBottom: 12,
+  },
+    container: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#fff',
+    fontSize: 16,
+    marginTop: 16,
+    fontWeight: '500',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  genderSelected: {
+    borderColor: '#6C63FF',
+    backgroundColor: '#f0f0ff',
+  },
+  genderImageContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#f8f9fa',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  genderImage: {
+    width: 60,
+    height: 60,
+    resizeMode: 'contain',
+  },
+  genderLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  nextButton: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#6C63FF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  nextButtonDisabled: {
+    opacity: 0.5,
+  },
+  nextButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    gap: 8,
+  },
+  nextButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  loadingSection: {
+    alignItems: 'center',
+    padding: 40,
+  },
+
+  // Dropdown Styles
+  dropdownContainer: {
+    marginVertical: 8,
+  },
+  dropdownButton: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  dropdownButtonOpen: {
+    borderColor: '#6C63FF',
+    backgroundColor: '#f0f0ff',
+  },
+  dropdownButtonDisabled: {
+    opacity: 0.5,
+    backgroundColor: '#f5f5f5',
+  },
+  dropdownButtonText: {
+    fontSize: 18,
+    color: '#333',
+    flex: 1,
+  },
+  dropdownPlaceholder: {
+    color: '#999',
+  },
+  dropdownOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  dropdownModal: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    width: '100%',
+    maxHeight: '70%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  dropdownHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  dropdownTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  dropdownCloseButton: {
+    padding: 4,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  searchIcon: {
+    marginRight: 12,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#333',
+    padding: 0,
+  },
+  dropdownList: {
+    maxHeight: 300,
+  },
+  dropdownOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  dropdownOptionSelected: {
+    backgroundColor: '#f0f0ff',
+  },
+  dropdownOptionText: {
+    fontSize: 16,
+    color: '#333',
+    flex: 1,
+  },
+  dropdownOptionTextSelected: {
+    color: '#6C63FF',
+    fontWeight: '600',
+  },
+  emptyDropdown: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  emptyDropdownText: {
+    fontSize: 16,
+    color: '#999',
+    fontStyle: 'italic',
+  },
+
+  // Chat Styles (existing)
+  chatContainer: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+  },
+  quickActions: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    gap: 12,
+  },
+  quickActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#f0f0ff',
+    borderRadius: 20,
+    gap: 6,
+  },
+  quickActionText: {
+    color: '#6C63FF',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  historyPanel: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  historyTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 12,
+  },
+  historyItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 16,
+    marginRight: 8,
+  },
+  historyItemActive: {
+    backgroundColor: '#6C63FF',
+  },
+  historyItemText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#333',
+  },
+  chatMessages: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+  },
+  chatMessagesContent: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  messageContainer: {
+    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  userMessageContainer: {
+    justifyContent: 'flex-end',
+  },
+  aiMessageContainer: {
+    justifyContent: 'flex-start',
+  },
+  messageBubble: {
+    maxWidth: '75%',
+    padding: 16,
+    borderRadius: 20,
+  },
+  userBubble: {
+    backgroundColor: '#6C63FF',
+    borderBottomRightRadius: 4,
+  },
+  aiBubble: {
+    backgroundColor: '#fff',
+    borderBottomLeftRadius: 4,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  messageText: {
+    fontSize: 16,
+    lineHeight: 22,
+  },
+  userMessageText: {
+    color: '#fff',
+  },
+  aiMessageText: {
+    color: '#333',
+  },
+  aiAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#6C63FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  userAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#333',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
+  },
+  typingContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginBottom: 16,
+  },
+  typingBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 20,
+    borderBottomLeftRadius: 4,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    marginLeft: 44,
+    gap: 8,
+  },
+  typingText: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  chatInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    gap: 12,
+  },
+  chatInput: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#333',
+    maxHeight: 100,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  sendButton: {
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  sendButtonDisabled: {
+    opacity: 0.5,
+  },
+  sendButtonGradient: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  
+  // Enhanced styles for better UX
+  floatingActionButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#6C63FF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  
+  planCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    marginHorizontal: 20,
+    marginVertical: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  
+  planCardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
+  },
+  
+  planCardSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 16,
+  },
+  
+  planCardActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  
+  planCardButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#f0f0ff',
+    borderRadius: 20,
+    gap: 6,
+  },
+  
+  planCardButtonText: {
+    color: '#6C63FF',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  
+  emptyStateIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#f0f0ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  
+  emptyStateTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  
+  emptyStateSubtitle: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  
+  badgeContainer: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: '#FF6B6B',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  
+  badgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  
+  // Improved animations
+  slideInFromRight: {
+    transform: [{ translateX: width }],
+  },
+  
+  slideInFromLeft: {
+    transform: [{ translateX: -width }],
+  },
+  
+  fadeInUp: {
+    opacity: 0,
+    transform: [{ translateY: 30 }],
+  },
+  
+  scaleIn: {
+    opacity: 0,
+    transform: [{ scale: 0.8 }],
+  },
+  
+  // Enhanced input styles
+  inputFocused: {
+    borderColor: '#6C63FF',
+    backgroundColor: '#f0f0ff',
+  },
+  
+  inputError: {
+    borderColor: '#FF6B6B',
+    backgroundColor: '#fff0f0',
+  },
+  
+  errorText: {
+    color: '#FF6B6B',
+    fontSize: 14,
+    marginTop: 8,
+    fontWeight: '500',
+  },
+  
+  // Loading states
+  skeletonText: {
+    backgroundColor: '#e0e0e0',
+    height: 16,
+    borderRadius: 8,
+    marginVertical: 4,
+  },
+  
+  skeletonAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#e0e0e0',
+  },
+  
+  skeletonBubble: {
+    backgroundColor: '#e0e0e0',
+    height: 60,
+    borderRadius: 20,
+    marginVertical: 8,
+  },
+  
+  // Success states
+  successContainer: {
+    backgroundColor: '#E8F5E8',
+    padding: 16,
+    borderRadius: 12,
+    marginVertical: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#4CAF50',
+  },
+  
+  successText: {
+    color: '#2E7D32',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  
+  // Enhanced chat styles
+  chatHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  
+  chatHeaderAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#6C63FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  
+  chatHeaderInfo: {
+    flex: 1,
+  },
+  
+  chatHeaderTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  
+  chatHeaderSubtitle: {
+    fontSize: 14,
+    color: '#666',
+  },
+  
+  chatHeaderActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  
+  chatHeaderButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  
+  // Message timestamp
+  messageTimestamp: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 4,
+    alignSelf: 'flex-end',
+  },
+  
+  // Quick replies
+  quickRepliesContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+  },
+  
+  quickRepliesTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#666',
+    marginBottom: 8,
+  },
+  
+  quickRepliesScroll: {
+    flexDirection: 'row',
+  },
+  
+  quickReplyButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#f0f0ff',
+    borderRadius: 20,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  
+  quickReplyText: {
+    color: '#6C63FF',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  
+  // Workout plan preview
+  workoutPreview: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 16,
+    marginVertical: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  
+  workoutPreviewTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  
+  workoutPreviewContent: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+  },
+  
+  workoutPreviewActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 12,
+  },
+  
+  previewButton: {
+    flex: 1,
+    paddingVertical: 8,
+    marginHorizontal: 4,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  
+  previewButtonPrimary: {
+    backgroundColor: '#6C63FF',
+  },
+  
+  previewButtonSecondary: {
+    backgroundColor: '#e0e0e0',
+  },
+  
+  previewButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  
+  previewButtonTextPrimary: {
+    color: '#fff',
+  },
+  
+  previewButtonTextSecondary: {
+    color: '#666',
+  },
+  menuButton: {
+    marginRight: 16,
+  },
+  headerContent: {
+    flex: 1,
+  },
+  headerTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  headerSubtitle: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 14,
+  },
+  profileButton: {
+    marginLeft: 16,
+  },
+  content: {
+    flex: 1,
+  },
+  questionContainer: {
+    flex: 1,
+    padding: 24,
+  },
+  progressContainer: {
+    marginBottom: 32,
+  },
+  progressBar: {
+    height: 4,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#6C63FF',
+    borderRadius: 2,
+  },
+  progressText: {
+    textAlign: 'center',
+    color: '#666',
+    fontSize: 14,
+    marginTop: 8,
+    fontWeight: '500',
+  },
+  questionContent: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  questionText: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  questionSubtitle: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 40,
+    lineHeight: 24,
+  },
+  input: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    fontSize: 18,
+    color: '#333',
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  dropdownInput: {
+    marginBottom: 24,
+  },
+  genderContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 40,
+  },
+  genderOption: {
+    alignItems: 'center',
+    padding: 20,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    width: 140,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
   },
   questionSubtitle: {
     fontSize: 16,

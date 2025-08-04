@@ -31,6 +31,7 @@ def check_existing():
 @generate_bp.route("/history/<user_id>", methods=["GET"])
 def get_conversation_history(user_id):
     conversations = Conversation.query.filter_by(user_id=user_id).all()
+    print(f"User ID: {user_id}, Conversations found: {len(conversations)}")
     return jsonify([
         {
             "conversation_id": c.id,
@@ -39,13 +40,14 @@ def get_conversation_history(user_id):
         } for c in conversations
     ])
 
+
 @generate_bp.route("/messages/<conversation_id>", methods=["GET"])
 def get_conversation_messages(conversation_id):
-    messages = Message.query.filter_by(conversation_id=conversation_id).order_by(Message.timestamp).all()
+    messages = Message.query.filter_by(conversation_id=conversation_id).order_by(Message.created_at).all()
     return jsonify([
         {
             "role": m.role.value,
             "content": m.content,
-            "timestamp": m.timestamp.isoformat()
+            "created_at": m.created_at.isoformat()
         } for m in messages
     ])

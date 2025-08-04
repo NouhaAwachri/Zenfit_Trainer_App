@@ -33,13 +33,8 @@ export default function CoachAIScreen({ navigation, user }) {
       icon: 'fitness',
       gradient: ['#667eea', '#764ba2'],
     },
-    {
-      id: 'nutrition',
-      name: 'Nutrition Coach',
-      description: 'Meal plans, dietary advice, healthy habits',
-      icon: 'restaurant',
-      gradient: ['#f093fb', '#f5576c'],
-    },
+
+
     {
       id: 'wellness',
       name: 'Wellness Coach',
@@ -47,20 +42,14 @@ export default function CoachAIScreen({ navigation, user }) {
       icon: 'heart',
       gradient: ['#4facfe', '#00f2fe'],
     },
-    {
-      id: 'lifestyle',
-      name: 'Lifestyle Coach',
-      description: 'Habits, productivity, life balance',
-      icon: 'leaf',
-      gradient: ['#a8edea', '#fed6e3'],
-    },
+   
+
   ];
 
   // Quick action suggestions
   const quickActions = [
     { id: 'motivation', text: 'I need motivation today', icon: 'flame' },
     { id: 'workout_advice', text: 'Help with my workout', icon: 'barbell' },
-    { id: 'nutrition_tips', text: 'Nutrition advice', icon: 'nutrition' },
     { id: 'goal_setting', text: 'Set new goals', icon: 'trophy' },
     { id: 'progress_check', text: 'Check my progress', icon: 'trending-up' },
     { id: 'habit_building', text: 'Build better habits', icon: 'checkmark-circle' },
@@ -86,9 +75,7 @@ export default function CoachAIScreen({ navigation, user }) {
     if (selectedCoachType && chatHistory.length === 0) {
       const welcomeMessages = {
         fitness: `🏋️ Hey ${username}! I'm your AI Fitness Coach. I'm here to help you crush your fitness goals, perfect your form, and keep you motivated every step of the way. What would you like to work on today?`,
-        nutrition: `🥗 Hello ${username}! I'm your AI Nutrition Coach. Whether you want to lose weight, build muscle, or just eat healthier, I'm here to guide you with personalized meal plans and nutrition advice. How can I help fuel your success?`,
         wellness: `🧘 Hi ${username}! I'm your AI Wellness Coach. I focus on your mental health, sleep quality, and stress management. Let's work together to create a balanced, healthy lifestyle. What aspect of wellness would you like to explore?`,
-        lifestyle: `🌟 Welcome ${username}! I'm your AI Lifestyle Coach. I help you build productive habits, achieve work-life balance, and design the life you want. What would you like to improve or change in your daily routine?`,
       };
 
       setChatHistory([{
@@ -163,7 +150,7 @@ export default function CoachAIScreen({ navigation, user }) {
 
     try {
       setLoading(true);
-      const response = await fetch('http://192.168.1.8:5000/coach/chat', {
+      const response = await fetch('http://192.168.1.8:5000/generate/history/${user?.uid}', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

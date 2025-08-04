@@ -39,7 +39,7 @@ import requests
 from langchain_core.runnables import Runnable
 
 class LLMEngine(Runnable):
-    def __init__(self, provider="ollama", model="mistral", api_key=None):
+    def __init__(self, provider="openrouter", model="deepseek", api_key=None):
         self.provider = provider.lower()
         self.api_key = api_key
         self.model = model

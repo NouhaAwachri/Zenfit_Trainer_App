@@ -26,6 +26,6 @@ class Message(db.Model):
     conversation_id = Column(Integer, ForeignKey("Conversations.id"), nullable=False)
     role = Column(Enum(RoleEnum), nullable=False)
     content = Column(Text, nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     conversation = relationship("Conversation", back_populates="messages")

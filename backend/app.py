@@ -19,15 +19,18 @@ db.init_app(app)
 # ✅ Blueprint imports AFTER db.init_app
 from routes.auth_routes import auth_bp
 from routes.chatbot_routes import chatbot_bp
+from routes.workout_logs import workout_logs_bp
+from routes.workout_logs import parser_bp
 #from routes.report_routes import report_bp
 #from routes.progress_routes import progress_bp
 from routes.generateProgram_routes import generate_bp
-
 app.register_blueprint(chatbot_bp, url_prefix="/chatbot")
 #app.register_blueprint(report_bp, url_prefix="/report")
 #app.register_blueprint(progress_bp, url_prefix="/progress")
 app.register_blueprint(auth_bp, url_prefix="/auth")
 app.register_blueprint(generate_bp, url_prefix="/generate")
+app.register_blueprint(workout_logs_bp)
+app.register_blueprint(parser_bp)
 
 @app.route('/')
 def index():

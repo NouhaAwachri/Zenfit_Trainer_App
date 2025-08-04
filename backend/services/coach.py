@@ -14,7 +14,7 @@ from services.agents.user_input import user_input_agent
 from services.agents.routine_generation import routine_generation_agent
 from services.agents.feedback_collection import feedback_collection_agent
 from services.agents.routine_adjustment import routine_adjustment_agent
-
+from services.agents.progress_monitoring import progress_monitoring_agent
 # Optionally available agents for future use
 # from services.agents.motivational import motivational_agent
 # from services.agents.progress_monitoring import progress_monitoring_agent
@@ -34,7 +34,7 @@ class State(TypedDict):
 # 🤖 Main Fitness Coach Orchestrator
 class AIFitnessCoach:
     def __init__(self):
-        self.llm = LLMEngine(provider="ollama", model="mistral") 
+        self.llm = LLMEngine(provider="openrouter", model="deepseek", api_key=api_key)
         self.retriever = load_retriever()
         self.graph = self.create_graph()
 
@@ -100,6 +100,7 @@ class AIFitnessCoach:
         for agent in [
             lambda s: feedback_collection_agent(s, self.llm),
             lambda s: routine_adjustment_agent(s, self.llm),
+             lambda s: progress_monitoring_agent(s, self.llm),
         ]:
             state = agent(state)
 
