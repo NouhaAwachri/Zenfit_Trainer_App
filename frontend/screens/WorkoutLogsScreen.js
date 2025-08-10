@@ -28,14 +28,9 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
   const [currentPlan, setCurrentPlan] = useState(null);
   const [workoutProgress, setWorkoutProgress] = useState(null);
   
-  // State for workout logs
-  const [logs, setLogs] = useState([]);
-  const [filterPeriod, setFilterPeriod] = useState('all');
-  
   // UI state
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('current'); // 'current' or 'logs'
   const [expandedWeek, setExpandedWeek] = useState(null);
   const [expandedDay, setExpandedDay] = useState(null);
   const [selectedExercise, setSelectedExercise] = useState(null);
@@ -47,6 +42,8 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
   const [workoutStartTime, setWorkoutStartTime] = useState(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.9)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
 
   // Fetch current workout plan
   const fetchCurrentPlan = async () => {
@@ -103,56 +100,73 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
     }
   };
 
-  // Fetch workout logs
-  const fetchWorkoutLogs = async () => {
-    if (!user?.uid) return;
-    
-    try {
-      setLoading(true);
-      const response = await fetch(`${BACKEND_URL}/workout/logs/${user.uid}?filter=${filterPeriod}`);
-      
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      
-      const data = await response.json();
-      setLogs(data);
-      setError(null);
-    } catch (err) {
-      console.error("❌ Error fetching logs:", err);
-      setError(`Failed to load workout logs: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Toggle exercise completion
-  const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}) => {
-    try {
-      console.log(`🔄 Toggling exercise ${exerciseId} to ${completed ? 'completed' : 'incomplete'}`);
+const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}) => {
+  try {
+    console.log(`🔄 Toggling exercise ${exerciseId} to ${completed ? 'completed' : 'incomplete'}`);
+    
+    const response = await fetch(`${BACKEND_URL}/workout/exercise/${exerciseId}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        completed: completed,
+        ...exerciseData
+      })
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    console.log("✅ Exercise toggled successfully");
+    
+    // ✅ Update local state immediately for instant checkbox/green background feedback
+    setCurrentPlan(prevPlan => {
+      if (!prevPlan || !prevPlan.plan) return prevPlan;
       
-      const response = await fetch(`${BACKEND_URL}/workout/exercise/${exerciseId}/complete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          completed: completed,
-          ...exerciseData
-        })
+      const updatedPlan = { ...prevPlan };
+      const newPlan = { ...updatedPlan.plan };
+      
+      // Find and update the specific exercise
+      Object.keys(newPlan).forEach(weekKey => {
+        Object.keys(newPlan[weekKey]).forEach(dayKey => {
+          if (newPlan[weekKey][dayKey].exercises) {
+            newPlan[weekKey][dayKey] = {
+              ...newPlan[weekKey][dayKey],
+              exercises: newPlan[weekKey][dayKey].exercises.map(ex => 
+                ex.id === exerciseId 
+                  ? { ...ex, completed: completed }
+                  : ex
+              )
+            };
+          }
+        });
       });
-
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-      console.log("✅ Exercise toggled successfully");
       
-      // Refresh current plan to show updated completion status
-      await fetchCurrentPlan();
-      await fetchWorkoutProgress();
-      
-      return true;
-    } catch (err) {
-      console.error("❌ Error toggling exercise:", err);
-      Alert.alert('Error', 'Failed to update exercise status');
-      return false;
+      updatedPlan.plan = newPlan;
+      return updatedPlan;
+    });
+
+    // Also update the selected exercise if it's the one being toggled
+    setSelectedExercise(prev => 
+      prev && prev.id === exerciseId 
+        ? { ...prev, completed: completed }
+        : prev
+    );
+
+    // ✅ Refresh workout progress so progress stats & animations update instantly
+    fetchWorkoutProgress();
+
+    // Show immediate feedback
+    if (completed) {
+      Alert.alert('✅ Exercise Completed!', 'Great job! Keep it up!', [{ text: 'OK' }]);
     }
-  };
+
+    return true;
+  } catch (err) {
+    console.error("❌ Error toggling exercise:", err);
+    Alert.alert('Error', 'Failed to update exercise status');
+    return false;
+  }
+};
 
   // Start workout session
   const startWorkoutSession = (week, day, dayData) => {
@@ -216,7 +230,6 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
           setActiveWorkout(null);
           setWorkoutTimer(0);
           setWorkoutStartTime(null);
-          fetchWorkoutLogs();
           fetchWorkoutProgress();
         }}]
       );
@@ -234,33 +247,33 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Load data on component mount and tab change
+  // Load data on component mount
   useEffect(() => {
-    console.log(`🔄 Tab changed to: ${activeTab}`);
-    if (activeTab === 'current') {
-      fetchCurrentPlan();
-      fetchWorkoutProgress();
-    } else {
-      fetchWorkoutLogs();
-    }
-  }, [user, activeTab, filterPeriod]);
+    fetchCurrentPlan();
+    fetchWorkoutProgress();
+  }, [user]);
 
-  // Animation effect
+  // Animation effects
   useEffect(() => {
-    fadeAnim.setValue(0);
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 800,
-      useNativeDriver: true,
-    }).start();
-  }, [currentPlan, logs]);
-
-  // Filter options
-  const filterOptions = [
-    { id: 'all', label: 'All Time', icon: 'calendar' },
-    { id: 'week', label: 'This Week', icon: 'calendar-outline' },
-    { id: 'month', label: 'This Month', icon: 'calendar-sharp' },
-  ];
+    // Entrance animation
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.timing(scaleAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 700,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [currentPlan]);
 
   // Progress stats for current plan
   const getProgressStats = () => {
@@ -270,24 +283,35 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
       return [
         {
           id: 'completion',
-          label: 'Completion',
+          label: 'Overall Progress',
           value: `${Math.round(completion)}%`,
-          icon: 'checkmark-circle',
+          icon: 'trophy',
           gradient: ['#667eea', '#764ba2'],
+          description: 'Program completion'
         },
         {
           id: 'workouts',
-          label: 'Workouts',
+          label: 'Workouts Done',
           value: '0',
           icon: 'fitness',
           gradient: ['#f093fb', '#f5576c'],
+          description: 'Total sessions'
         },
         {
           id: 'streak',
-          label: 'Streak',
+          label: 'Current Streak',
           value: '0d',
           icon: 'flame',
           gradient: ['#4facfe', '#00f2fe'],
+          description: 'Keep it up!'
+        },
+        {
+          id: 'time',
+          label: 'Time Invested',
+          value: '0h',
+          icon: 'time',
+          gradient: ['#43e97b', '#38f9d7'],
+          description: 'Total workout time'
         },
       ];
     }
@@ -295,24 +319,35 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
     return [
       {
         id: 'completion',
-        label: 'Completion',
+        label: 'Overall Progress',
         value: `${Math.round(workoutProgress.completion_percentage || 0)}%`,
-        icon: 'checkmark-circle',
+        icon: 'trophy',
         gradient: ['#667eea', '#764ba2'],
+        description: 'Program completion'
       },
       {
         id: 'workouts',
-        label: 'Workouts',
+        label: 'Workouts Done',
         value: (workoutProgress.total_workouts || 0).toString(),
         icon: 'fitness',
         gradient: ['#f093fb', '#f5576c'],
+        description: 'Total sessions'
       },
       {
         id: 'streak',
-        label: 'Streak',
+        label: 'Current Streak',
         value: `${workoutProgress.current_streak || 0}d`,
         icon: 'flame',
         gradient: ['#4facfe', '#00f2fe'],
+        description: 'Keep it up!'
+      },
+      {
+        id: 'time',
+        label: 'Time Invested',
+        value: `${Math.round((workoutProgress.total_time || 0) / 60)}h`,
+        icon: 'time',
+        gradient: ['#43e97b', '#38f9d7'],
+        description: 'Total workout time'
       },
     ];
   };
@@ -326,47 +361,71 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
       onRequestClose={() => setShowExerciseModal(false)}
     >
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
+        <Animated.View style={[styles.modalContent, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>{selectedExercise?.name}</Text>
-            <TouchableOpacity onPress={() => setShowExerciseModal(false)}>
+            <TouchableOpacity 
+              onPress={() => setShowExerciseModal(false)}
+              style={styles.modalCloseButton}
+            >
               <Ionicons name="close" size={24} color="#333" />
             </TouchableOpacity>
           </View>
           
-          <View style={styles.exerciseDetails}>
-            <View style={styles.exerciseMetric}>
+          <View style={styles.exerciseDetailsGrid}>
+            <View style={styles.exerciseMetricCard}>
+              <LinearGradient colors={['#667eea', '#764ba2']} style={styles.metricIconContainer}>
+                <Ionicons name="barbell" size={20} color="#fff" />
+              </LinearGradient>
               <Text style={styles.metricLabel}>Sets</Text>
               <Text style={styles.metricValue}>{selectedExercise?.sets}</Text>
             </View>
-            <View style={styles.exerciseMetric}>
+            <View style={styles.exerciseMetricCard}>
+              <LinearGradient colors={['#f093fb', '#f5576c']} style={styles.metricIconContainer}>
+                <Ionicons name="refresh" size={20} color="#fff" />
+              </LinearGradient>
               <Text style={styles.metricLabel}>Reps</Text>
               <Text style={styles.metricValue}>{selectedExercise?.reps}</Text>
             </View>
-            <View style={styles.exerciseMetric}>
+            <View style={styles.exerciseMetricCard}>
+              <LinearGradient colors={['#4facfe', '#00f2fe']} style={styles.metricIconContainer}>
+                <Ionicons name="timer" size={20} color="#fff" />
+              </LinearGradient>
               <Text style={styles.metricLabel}>Rest</Text>
               <Text style={styles.metricValue}>{selectedExercise?.rest_seconds || 60}s</Text>
             </View>
           </View>
 
           <View style={styles.modalActions}>
-            <TouchableOpacity
-              style={[
-                styles.completionButton,
-                selectedExercise?.completed ? styles.completedButton : styles.incompleteButton
-              ]}
-              onPress={async () => {
-                const success = await toggleExerciseCompletion(
-                  selectedExercise.id,
-                  !selectedExercise.completed
-                );
-                if (success) {
-                  setShowExerciseModal(false);
-                }
-              }}
-            >
+<TouchableOpacity
+  style={[
+    styles.completionButton,
+    selectedExercise?.completed ? styles.completedButton : styles.incompleteButton
+  ]}
+  onPress={async () => {
+    const newCompletedState = !selectedExercise.completed;
+    
+    // Update UI immediately
+    setSelectedExercise(prev => ({ ...prev, completed: newCompletedState }));
+    
+    const success = await toggleExerciseCompletion(
+      selectedExercise.id,
+      newCompletedState
+    );
+    
+    if (success) {
+      // Keep modal open to show the updated state, or close after a brief delay
+      setTimeout(() => {
+        setShowExerciseModal(false);
+      }, 1000); // Close after 1 second to show the success state
+    } else {
+      // Revert the UI change if the request failed
+      setSelectedExercise(prev => ({ ...prev, completed: !newCompletedState }));
+    }
+  }}
+>
               <Ionicons 
-                name={selectedExercise?.completed ? "checkmark-circle" : "circle-outline"} 
+                name={selectedExercise?.completed ? "checkmark-circle" : "add-circle"} 
                 size={20} 
                 color="#fff" 
               />
@@ -375,42 +434,58 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
               </Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </Animated.View>
       </View>
     </Modal>
   );
 
-  // Current Plan Tab Component
-  const CurrentPlanTab = () => {
+  // Main Content Component
+  const MainContent = () => {
     if (loading) {
       return (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#667eea" />
-          <Text style={styles.loadingText}>Loading workout plan...</Text>
+          <View style={styles.loadingSpinner}>
+            <ActivityIndicator size="large" color="#667eea" />
+            <Text style={styles.loadingText}>Loading your workout plan...</Text>
+            <Text style={styles.loadingSubtext}>Getting everything ready for you</Text>
+          </View>
         </View>
       );
     }
 
     if (error) {
       return (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="warning" size={64} color="#f5576c" />
-          <Text style={styles.emptyTitle}>Error Loading Plan</Text>
+        <Animated.View style={[styles.emptyContainer, { opacity: fadeAnim }]}>
+          <LinearGradient colors={['#ff9a9e', '#fecfef']} style={styles.errorIconContainer}>
+            <Ionicons name="warning" size={48} color="#fff" />
+          </LinearGradient>
+          <Text style={styles.emptyTitle}>Oops! Something went wrong</Text>
           <Text style={styles.emptyText}>{error}</Text>
           <TouchableOpacity style={styles.retryButton} onPress={fetchCurrentPlan}>
-            <Text style={styles.retryButtonText}>Retry</Text>
+            <LinearGradient colors={['#667eea', '#764ba2']} style={styles.retryGradient}>
+              <Ionicons name="refresh" size={16} color="#fff" />
+              <Text style={styles.retryButtonText}>Try Again</Text>
+            </LinearGradient>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
       );
     }
 
     if (!currentPlan) {
       return (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="fitness" size={64} color="#ccc" />
-          <Text style={styles.emptyTitle}>No Workout Plan</Text>
-          <Text style={styles.emptyText}>Generate a workout plan to start tracking your progress!</Text>
-        </View>
+        <Animated.View style={[styles.emptyContainer, { opacity: fadeAnim }]}>
+          <LinearGradient colors={['#a8edea', '#fed6e3']} style={styles.errorIconContainer}>
+            <Ionicons name="fitness" size={48} color="#fff" />
+          </LinearGradient>
+          <Text style={styles.emptyTitle}>Ready to start your fitness journey?</Text>
+          <Text style={styles.emptyText}>Generate your personalized workout plan and begin tracking your progress!</Text>
+          <TouchableOpacity style={styles.retryButton}>
+            <LinearGradient colors={['#667eea', '#764ba2']} style={styles.retryGradient}>
+              <Ionicons name="add" size={16} color="#fff" />
+              <Text style={styles.retryButtonText}>Create Plan</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </Animated.View>
       );
     }
 
@@ -420,64 +495,116 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
       <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
         {/* Active Workout Header */}
         {activeWorkout && (
-          <View style={styles.activeWorkoutHeader}>
+          <Animated.View style={[styles.activeWorkoutHeader, { opacity: fadeAnim }]}>
             <LinearGradient
               colors={['#f093fb', '#f5576c']}
               style={styles.activeWorkoutGradient}
             >
               <View style={styles.activeWorkoutInfo}>
                 <Text style={styles.activeWorkoutTitle}>
-                  Week {activeWorkout.week}, Day {activeWorkout.day}
+                  🔥 Week {activeWorkout.week}, Day {activeWorkout.day}
                 </Text>
                 <Text style={styles.activeWorkoutTimer}>{formatTime(workoutTimer)}</Text>
+                <Text style={styles.activeWorkoutSubtitle}>Keep pushing! You're doing great!</Text>
               </View>
               <TouchableOpacity
                 style={styles.endWorkoutButton}
                 onPress={() => endWorkoutSession()}
               >
+                <Ionicons name="checkmark" size={20} color="#fff" />
                 <Text style={styles.endWorkoutText}>Finish</Text>
               </TouchableOpacity>
             </LinearGradient>
-          </View>
+          </Animated.View>
         )}
 
-        {/* Progress Stats */}
-        <View style={styles.statsContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {progressStats.map((stat) => (
-              <View key={stat.id} style={styles.statCard}>
+        {/* Motivational Header */}
+        <Animated.View style={[styles.motivationalHeader, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+          <LinearGradient colors={['#667eea', '#764ba2']} style={styles.motivationalGradient}>
+            <Text style={styles.motivationalText}>
+              {activeWorkout ? "💪 Workout in Progress!" : "🚀 Ready to crush your goals?"}
+            </Text>
+            <Text style={styles.motivationalSubtext}>
+              {currentPlan?.program_name || "Your Fitness Journey"}
+            </Text>
+          </LinearGradient>
+        </Animated.View>
+
+        {/* Enhanced Progress Stats */}
+        <Animated.View style={[styles.statsContainer, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
+          <Text style={styles.statsTitle}>Your Progress</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statsScrollContent}>
+            {progressStats.map((stat, index) => (
+              <Animated.View 
+                key={stat.id} 
+                style={[
+                  styles.statCard,
+                  { 
+                    opacity: fadeAnim,
+                    transform: [{ 
+                      translateX: Animated.add(slideAnim, new Animated.Value(index * 10)) 
+                    }] 
+                  }
+                ]}
+              >
                 <LinearGradient colors={stat.gradient} style={styles.statCardGradient}>
-                  <Ionicons name={stat.icon} size={24} color="#fff" />
+                  <View style={styles.statIconContainer}>
+                    <Ionicons name={stat.icon} size={28} color="#fff" />
+                  </View>
                   <Text style={styles.statValue}>{stat.value}</Text>
                   <Text style={styles.statLabel}>{stat.label}</Text>
+                  <Text style={styles.statDescription}>{stat.description}</Text>
                 </LinearGradient>
-              </View>
+              </Animated.View>
             ))}
           </ScrollView>
-        </View>
+        </Animated.View>
 
-        {/* Workout Plan */}
-        <View style={styles.planContainer}>
-          <Text style={styles.planTitle}>{currentPlan.program_name}</Text>
+        {/* Enhanced Workout Plan */}
+        <Animated.View style={[styles.planContainer, { opacity: fadeAnim }]}>
+          <View style={styles.planHeader}>
+            <Text style={styles.planTitle}>Your Workout Plan</Text>
+            <Text style={styles.planSubtitle}>Tap exercises to track your progress</Text>
+          </View>
           
-          {/* Debug info */}
-          {__DEV__ && (
-            <Text style={styles.debugText}>
-              Plan structure: {JSON.stringify(Object.keys(currentPlan.plan || {}), null, 2)}
-            </Text>
-          )}
-          
-          {Object.entries(currentPlan.plan || {}).map(([weekKey, weekData]) => {
+          {Object.entries(currentPlan.plan || {}).map(([weekKey, weekData], weekIndex) => {
             const weekNum = weekKey.replace('Week ', '');
             const isWeekExpanded = expandedWeek === weekKey;
             
+            // Calculate week progress
+            const weekExercises = Object.values(weekData || {}).flatMap(day => day.exercises || []);
+            const weekCompletedExercises = weekExercises.filter(ex => ex.completed).length;
+            const weekProgress = weekExercises.length > 0 ? (weekCompletedExercises / weekExercises.length) * 100 : 0;
+            
             return (
-              <View key={weekKey} style={styles.weekContainer}>
+              <Animated.View 
+                key={weekKey} 
+                style={[
+                  styles.weekContainer,
+                  { 
+                    opacity: fadeAnim,
+                    transform: [{ translateY: Animated.add(slideAnim, new Animated.Value(weekIndex * 5)) }]
+                  }
+                ]}
+              >
                 <TouchableOpacity
                   style={styles.weekHeader}
                   onPress={() => setExpandedWeek(isWeekExpanded ? null : weekKey)}
                 >
-                  <Text style={styles.weekTitle}>{weekKey}</Text>
+                  <View style={styles.weekHeaderLeft}>
+                    <LinearGradient
+                      colors={weekProgress > 75 ? ['#4CAF50', '#45a049'] : ['#667eea', '#764ba2']}
+                      style={styles.weekProgressIcon}
+                    >
+                      <Text style={styles.weekProgressText}>{Math.round(weekProgress)}%</Text>
+                    </LinearGradient>
+                    <View>
+                      <Text style={styles.weekTitle}>{weekKey}</Text>
+                      <Text style={styles.weekProgress}>
+                        {weekCompletedExercises}/{weekExercises.length} exercises completed
+                      </Text>
+                    </View>
+                  </View>
                   <Ionicons 
                     name={isWeekExpanded ? "chevron-up" : "chevron-down"} 
                     size={20} 
@@ -487,7 +614,7 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
                 
                 {isWeekExpanded && (
                   <View style={styles.weekContent}>
-                    {Object.entries(weekData || {}).map(([dayKey, dayData]) => {
+                    {Object.entries(weekData || {}).map(([dayKey, dayData], dayIndex) => {
                       const dayNum = dayKey.replace('Day ', '');
                       const isDayExpanded = expandedDay === `${weekKey}-${dayKey}`;
                       const exercises = dayData?.exercises || [];
@@ -496,9 +623,18 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
                       const dayProgress = totalExercises > 0 ? (completedExercises / totalExercises) * 100 : 0;
                       
                       return (
-                        <View key={dayKey} style={styles.dayContainer}>
+                        <Animated.View 
+                          key={dayKey} 
+                          style={[
+                            styles.dayContainer,
+                            { 
+                              opacity: fadeAnim,
+                              transform: [{ translateX: Animated.add(slideAnim, new Animated.Value(dayIndex * 3)) }]
+                            }
+                          ]}
+                        >
                           <TouchableOpacity
-                            style={styles.dayHeader}
+                            style={[styles.dayHeader, dayProgress === 100 && styles.dayHeaderCompleted]}
                             onPress={() => setExpandedDay(isDayExpanded ? null : `${weekKey}-${dayKey}`)}
                           >
                             <View style={styles.dayHeaderLeft}>
@@ -507,26 +643,32 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
                                 style={styles.dayIcon}
                               >
                                 <Ionicons 
-                                  name={dayProgress === 100 ? "checkmark" : "fitness"} 
-                                  size={16} 
+                                  name={dayProgress === 100 ? "checkmark-circle" : "fitness"} 
+                                  size={18} 
                                   color="#fff" 
                                 />
                               </LinearGradient>
-                              <View>
+                              <View style={styles.dayInfo}>
                                 <Text style={styles.dayTitle}>{dayData?.label || `Day ${dayNum}`}</Text>
                                 <Text style={styles.dayProgress}>
-                                  {completedExercises}/{totalExercises} exercises
+                                  {completedExercises}/{totalExercises} completed • {exercises.length} exercises
                                 </Text>
+                                {dayProgress === 100 && (
+                                  <Text style={styles.dayCompletedText}>🎉 Completed!</Text>
+                                )}
                               </View>
                             </View>
                             
                             <View style={styles.dayHeaderRight}>
-                              <TouchableOpacity
-                                style={styles.startWorkoutButton}
-                                onPress={() => startWorkoutSession(weekNum, dayNum, dayData)}
-                              >
-                                <Ionicons name="play" size={16} color="#fff" />
-                              </TouchableOpacity>
+                              {!activeWorkout && dayProgress < 100 && (
+                                <TouchableOpacity
+                                  style={styles.startWorkoutButton}
+                                  onPress={() => startWorkoutSession(weekNum, dayNum, dayData)}
+                                >
+                                  <Ionicons name="play" size={14} color="#fff" />
+                                  <Text style={styles.startWorkoutText}>Start</Text>
+                                </TouchableOpacity>
+                              )}
                               <Ionicons 
                                 name={isDayExpanded ? "chevron-up" : "chevron-down"} 
                                 size={16} 
@@ -550,17 +692,22 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
                                   }}
                                 >
                                   <View style={styles.exerciseItemLeft}>
-                                    <TouchableOpacity
-                                      style={[
-                                        styles.exerciseCheckbox,
-                                        exercise.completed && styles.exerciseCheckboxChecked
-                                      ]}
-                                      onPress={() => toggleExerciseCompletion(exercise.id, !exercise.completed)}
-                                    >
-                                      {exercise.completed && (
-                                        <Ionicons name="checkmark" size={16} color="#fff" />
-                                      )}
-                                    </TouchableOpacity>
+                                   <TouchableOpacity
+  style={[
+    styles.exerciseCheckbox,
+    exercise.completed && styles.exerciseCheckboxChecked
+  ]}
+  onPress={async () => {
+    const newCompletedState = !exercise.completed;
+    
+    // Call the toggle function (which now updates state immediately)
+    await toggleExerciseCompletion(exercise.id, newCompletedState);
+  }}
+>
+  {exercise.completed && (
+    <Ionicons name="checkmark" size={14} color="#fff" />
+  )}
+</TouchableOpacity>
                                     <View style={styles.exerciseInfo}>
                                       <Text style={[
                                         styles.exerciseName,
@@ -568,131 +715,41 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
                                       ]}>
                                         {exercise.name}
                                       </Text>
-                                      <Text style={styles.exerciseDetails}>
-                                        {exercise.sets} sets × {exercise.reps} reps
-                                      </Text>
+                                      <View style={styles.exerciseMetrics}>
+                                        <View style={styles.exerciseMetric}>
+                                          <Ionicons name="barbell" size={12} color="#666" />
+                                          <Text style={styles.exerciseMetricText}>{exercise.sets} sets</Text>
+                                        </View>
+                                        <View style={styles.exerciseMetric}>
+                                          <Ionicons name="refresh" size={12} color="#666" />
+                                          <Text style={styles.exerciseMetricText}>{exercise.reps} reps</Text>
+                                        </View>
+                                      </View>
                                     </View>
                                   </View>
                                   
-                                  <Ionicons name="chevron-forward" size={16} color="#999" />
+                                  <View style={styles.exerciseItemRight}>
+                                    {exercise.completed && (
+                                      <View style={styles.completedBadge}>
+                                        <Ionicons name="checkmark-circle" size={16} color="#4CAF50" />
+                                      </View>
+                                    )}
+                                    <Ionicons name="chevron-forward" size={16} color="#999" />
+                                  </View>
                                 </TouchableOpacity>
                               ))}
                             </Animated.View>
                           )}
-                        </View>
+                        </Animated.View>
                       );
                     })}
                   </View>
                 )}
-              </View>
+              </Animated.View>
             );
           })}
-        </View>
+        </Animated.View>
       </ScrollView>
-    );
-  };
-
-  // Workout Logs Tab Component
-  const WorkoutLogsTab = () => {
-    if (loading) {
-      return (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#667eea" />
-          <Text style={styles.loadingText}>Loading workout logs...</Text>
-        </View>
-      );
-    }
-
-    return (
-      <View style={styles.tabContent}>
-        {/* Filter Bar */}
-        <View style={styles.filterContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {filterOptions.map((filter) => (
-              <TouchableOpacity
-                key={filter.id}
-                style={[
-                  styles.filterButton,
-                  filterPeriod === filter.id && styles.filterButtonActive
-                ]}
-                onPress={() => setFilterPeriod(filter.id)}
-              >
-                <Ionicons 
-                  name={filter.icon} 
-                  size={16} 
-                  color={filterPeriod === filter.id ? "#fff" : "#666"} 
-                />
-                <Text style={[
-                  styles.filterText,
-                  filterPeriod === filter.id && styles.filterTextActive
-                ]}>
-                  {filter.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* Logs List */}
-        {logs.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="calendar" size={64} color="#ccc" />
-            <Text style={styles.emptyTitle}>No Workout Logs</Text>
-            <Text style={styles.emptyText}>Complete some workouts to see your history here!</Text>
-          </View>
-        ) : (
-          <FlatList
-            data={logs}
-            renderItem={({ item: log }) => (
-              <Animated.View style={[styles.logCard, { opacity: fadeAnim }]}>
-                <View style={styles.logHeader}>
-                  <LinearGradient
-                    colors={['#667eea', '#764ba2']}
-                    style={styles.logIcon}
-                  >
-                    <Ionicons name="fitness" size={20} color="#fff" />
-                  </LinearGradient>
-                  
-                  <View style={styles.logInfo}>
-                    <Text style={styles.logTitle}>{log.workoutType}</Text>
-                    <Text style={styles.logDate}>
-                      {new Date(log.date).toLocaleDateString('en-US', {
-                        weekday: 'short',
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </Text>
-                  </View>
-                  
-                  <View style={styles.logStats}>
-                    <View style={styles.logStat}>
-                      <Ionicons name="time" size={12} color="#666" />
-                      <Text style={styles.logStatText}>{log.duration}min</Text>
-                    </View>
-                    <View style={styles.logStat}>
-                      <Ionicons name="checkmark-circle" size={12} color="#666" />
-                      <Text style={styles.logStatText}>
-                        {log.completed_exercises}/{log.total_exercises}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-                
-                {log.notes && (
-                  <View style={styles.logNotes}>
-                    <Text style={styles.logNotesText}>{log.notes}</Text>
-                  </View>
-                )}
-              </Animated.View>
-            )}
-            keyExtractor={(item) => item.id.toString()}
-            style={styles.logsList}
-            showsVerticalScrollIndicator={false}
-            refreshing={loading}
-            onRefresh={fetchWorkoutLogs}
-          />
-        )}
-      </View>
     );
   };
 
@@ -701,56 +758,26 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#667eea" />
       
-      {/* Header */}
+      {/* Enhanced Header */}
       <LinearGradient colors={['#667eea', '#764ba2']} style={styles.header}>
         <TouchableOpacity onPress={() => navigation.openDrawer()} style={styles.menuButton}>
           <Ionicons name="menu" size={28} color="white" />
         </TouchableOpacity>
         <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>Workout Logs</Text>
-          <Text style={styles.headerSubtitle}>Track your fitness journey</Text>
+          <Text style={styles.headerTitle}>My Workouts</Text>
+          <Text style={styles.headerSubtitle}>
+            {activeWorkout ? "Workout in progress..." : "Let's get stronger today! 💪"}
+          </Text>
         </View>
+        {!activeWorkout && (
+          <TouchableOpacity style={styles.headerAction}>
+            <Ionicons name="trophy" size={24} color="rgba(255,255,255,0.8)" />
+          </TouchableOpacity>
+        )}
       </LinearGradient>
 
-      {/* Tab Navigation */}
-      <View style={styles.tabNavigation}>
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'current' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('current')}
-        >
-          <Ionicons 
-            name="fitness" 
-            size={20} 
-            color={activeTab === 'current' ? "#667eea" : "#999"} 
-          />
-          <Text style={[
-            styles.tabButtonText,
-            activeTab === 'current' && styles.tabButtonTextActive
-          ]}>
-            Current Plan
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'logs' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('logs')}
-        >
-          <Ionicons 
-            name="calendar" 
-            size={20} 
-            color={activeTab === 'logs' ? "#667eea" : "#999"} 
-          />
-          <Text style={[
-            styles.tabButtonText,
-            activeTab === 'logs' && styles.tabButtonTextActive
-          ]}>
-            History
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Tab Content */}
-      {activeTab === 'current' ? <CurrentPlanTab /> : <WorkoutLogsTab />}
+      {/* Main Content */}
+      <MainContent />
 
       {/* Exercise Modal */}
       <ExerciseModal />
@@ -770,11 +797,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    elevation: 4,
+    elevation: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
   },
   menuButton: {
     marginRight: 16,
@@ -784,50 +811,16 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     color: '#fff',
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: 'bold',
   },
   headerSubtitle: {
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: 'rgba(255, 255, 255, 0.9)',
     fontSize: 14,
+    marginTop: 2,
   },
-
-  // Debug text
-  debugText: {
-    fontSize: 10,
-    color: '#999',
-    backgroundColor: '#f0f0f0',
+  headerAction: {
     padding: 8,
-    marginVertical: 4,
-    borderRadius: 4,
-  },
-
-  // Tab Navigation
-  tabNavigation: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  tabButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    gap: 8,
-  },
-  tabButtonActive: {
-    borderBottomWidth: 2,
-    borderBottomColor: '#667eea',
-  },
-  tabButtonText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#999',
-  },
-  tabButtonTextActive: {
-    color: '#667eea',
   },
 
   // Tab Content
@@ -835,10 +828,111 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
+  // Motivational Header
+  motivationalHeader: {
+    margin: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+  },
+  motivationalGradient: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  motivationalText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  motivationalSubtext: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 16,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+
   // Active Workout Header
   activeWorkoutHeader: {
     margin: 16,
-    borderRadius: 12,
+    borderRadius: 16,
+    overflow: 'hidden',
+    elevation: 8,
+    shadowColor: '#f093fb',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  activeWorkoutGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+  },
+  activeWorkoutInfo: {
+    flex: 1,
+  },
+  activeWorkoutTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  activeWorkoutTimer: {
+    color: '#fff',
+    fontSize: 32,
+    fontWeight: 'bold',
+    marginTop: 4,
+  },
+  activeWorkoutSubtitle: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 14,
+    marginTop: 4,
+  },
+  endWorkoutButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 25,
+    gap: 8,
+  },
+  endWorkoutText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
+  // Enhanced Stats Container
+  statsContainer: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    borderRadius: 20,
+    paddingVertical: 24,
+    marginBottom: 16,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  statsTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginLeft: 20,
+    marginBottom: 16,
+  },
+  statsScrollContent: {
+    paddingLeft: 20,
+    paddingRight: 8,
+  },
+  statCard: {
+    marginRight: 12,
+    borderRadius: 16,
     overflow: 'hidden',
     elevation: 3,
     shadowColor: '#000',
@@ -846,164 +940,189 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
-  activeWorkoutGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-  },
-  activeWorkoutInfo: {
-    flex: 1,
-  },
-  activeWorkoutTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  activeWorkoutTimer: {
-    color: 'rgba(255, 255, 255, 0.9)',
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginTop: 4,
-  },
-  endWorkoutButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  endWorkoutText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-
-  // Stats Container
-  statsContainer: {
-    backgroundColor: '#fff',
-    paddingVertical: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  statCard: {
-    marginLeft: 16,
-    marginRight: 4,
-    borderRadius: 12,
-    overflow: 'hidden',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-  },
   statCardGradient: {
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 20,
     alignItems: 'center',
-    minWidth: 100,
+    minWidth: 120,
+    minHeight: 140,
+    justifyContent: 'center',
+  },
+  statIconContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    padding: 12,
+    borderRadius: 20,
+    marginBottom: 12,
   },
   statValue: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: 'bold',
-    marginTop: 8,
+    marginBottom: 4,
   },
   statLabel: {
-    color: 'rgba(255, 255, 255, 0.9)',
-    fontSize: 12,
-    marginTop: 4,
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  statDescription: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 11,
+    textAlign: 'center',
   },
 
-  // Plan Container
+  // Enhanced Plan Container
   planContainer: {
     padding: 16,
   },
+  planHeader: {
+    marginBottom: 20,
+    alignItems: 'center',
+  },
   planTitle: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 16,
+    marginBottom: 4,
+  },
+  planSubtitle: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
   },
 
-  // Week Container
+  // Enhanced Week Container
   weekContainer: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    marginBottom: 12,
+    borderRadius: 16,
+    marginBottom: 16,
     overflow: 'hidden',
-    elevation: 2,
+    elevation: 3,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowRadius: 6,
   },
   weekHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
+    padding: 20,
     backgroundColor: '#f8f9fa',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+  },
+  weekHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  weekProgressIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  weekProgressText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   weekTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#333',
   },
+  weekProgress: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 2,
+  },
   weekContent: {
     padding: 16,
-    paddingTop: 0,
   },
 
-  // Day Container
+  // Enhanced Day Container
   dayContainer: {
-    marginBottom: 12,
+    marginBottom: 16,
   },
   dayHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
     backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    marginBottom: 8,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  dayHeaderCompleted: {
+    backgroundColor: '#f0f8f0',
+    borderColor: '#4CAF50',
   },
   dayHeaderLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 16,
+    flex: 1,
   },
   dayIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  dayInfo: {
+    flex: 1,
+  },
   dayTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
     color: '#333',
   },
   dayProgress: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#666',
+    marginTop: 3,
+  },
+  dayCompletedText: {
+    fontSize: 12,
+    color: '#4CAF50',
+    fontWeight: '600',
     marginTop: 2,
   },
   dayHeaderRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
   },
   startWorkoutButton: {
     backgroundColor: '#4CAF50',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: 'center',
+    flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 6,
+    elevation: 2,
+    shadowColor: '#4CAF50',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  startWorkoutText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
   },
 
-  // Exercises List
+  // Enhanced Exercises List
   exercisesList: {
     paddingLeft: 16,
   },
@@ -1011,13 +1130,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
     backgroundColor: '#fff',
-    borderRadius: 8,
-    marginBottom: 8,
+    borderRadius: 12,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: '#e0e0e0',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
   },
   exerciseCompleted: {
     backgroundColor: '#f0f8f0',
@@ -1027,12 +1151,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    gap: 12,
+    gap: 16,
   },
   exerciseCheckbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     borderWidth: 2,
     borderColor: '#ddd',
     justifyContent: 'center',
@@ -1047,158 +1171,98 @@ const styles = StyleSheet.create({
   },
   exerciseName: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#333',
+    marginBottom: 4,
   },
   exerciseNameCompleted: {
     textDecorationLine: 'line-through',
     color: '#666',
   },
-  exerciseDetails: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
-  },
-
-  // Filter Container
-  filterContainer: {
-    backgroundColor: '#fff',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  filterButton: {
+  exerciseMetrics: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginRight: 12,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 20,
-    gap: 8,
+    gap: 16,
   },
-  filterButtonActive: {
-    backgroundColor: '#667eea',
-  },
-  filterText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#666',
-  },
-  filterTextActive: {
-    color: '#fff',
-  },
-
-  // Logs List
-  logsList: {
-    flex: 1,
-    padding: 16,
-  },
-  logCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    marginBottom: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    overflow: 'hidden',
-  },
-  logHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-  },
-  logIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  logInfo: {
-    flex: 1,
-  },
-  logTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  logDate: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
-  },
-  logStats: {
-    gap: 8,
-  },
-  logStat: {
+  exerciseMetric: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
   },
-  logStatText: {
-    fontSize: 12,
+  exerciseMetricText: {
+    fontSize: 13,
     color: '#666',
   },
-  logNotes: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-    marginTop: 8,
-    paddingTop: 12,
+  exerciseItemRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  logNotesText: {
-    fontSize: 14,
-    color: '#666',
-    fontStyle: 'italic',
+  completedBadge: {
+    padding: 4,
   },
 
-  // Modal Styles
+  // Enhanced Modal Styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContent: {
     backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 24,
+    borderRadius: 24,
+    padding: 28,
     margin: 20,
     maxWidth: width * 0.9,
     width: '100%',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
   },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  exerciseDetails: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
     marginBottom: 24,
   },
-  exerciseMetric: {
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1,
+  },
+  modalCloseButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#f5f5f5',
+  },
+  exerciseDetailsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 28,
+  },
+  exerciseMetricCard: {
     alignItems: 'center',
+    flex: 1,
+  },
+  metricIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   metricLabel: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#666',
     marginBottom: 4,
+    fontWeight: '500',
   },
   metricValue: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#333',
   },
@@ -1208,10 +1272,15 @@ const styles = StyleSheet.create({
   completionButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    paddingHorizontal: 28,
+    paddingVertical: 14,
     borderRadius: 25,
     gap: 8,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
   },
   completedButton: {
     backgroundColor: '#f44336',
@@ -1225,16 +1294,33 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Loading and Empty States
+  // Enhanced Loading and Empty States
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: 60,
+  },
+  loadingSpinner: {
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 40,
+    borderRadius: 20,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 16,
+    marginTop: 20,
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+  },
+  loadingSubtext: {
+    marginTop: 8,
+    fontSize: 14,
     color: '#666',
   },
   emptyContainer: {
@@ -1243,27 +1329,45 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 40,
   },
+  errorIconContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
   emptyTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#333',
-    marginTop: 16,
-    marginBottom: 8,
+    marginBottom: 12,
+    textAlign: 'center',
   },
   emptyText: {
     fontSize: 16,
     color: '#666',
     textAlign: 'center',
     lineHeight: 24,
+    marginBottom: 24,
   },
 
-  // Retry button
+  // Enhanced Retry button
   retryButton: {
-    backgroundColor: '#667eea',
+    borderRadius: 25,
+    overflow: 'hidden',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
+  retryGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 20,
-    marginTop: 16,
+    paddingVertical: 14,
+    gap: 8,
   },
   retryButtonText: {
     color: '#fff',

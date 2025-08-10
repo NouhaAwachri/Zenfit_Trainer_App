@@ -11,7 +11,11 @@ class WorkoutLog(db.Model):
     program_id = db.Column(db.Integer, db.ForeignKey("workout_program.id"))
     week = db.Column(db.Integer)  # Which week of program
     day = db.Column(db.Integer)   # Which day of week
+
+
+    
 class WorkoutExercise(db.Model):
+    __tablename__ = 'workout_exercise' 
     id = db.Column(db.Integer, primary_key=True)
     program_id = db.Column(db.Integer, db.ForeignKey("workout_program.id"), nullable=False)
     
@@ -35,6 +39,7 @@ class WorkoutExercise(db.Model):
     workout_program = db.relationship("WorkoutProgram", backref="exercises")
 
 class ExerciseLibrary(db.Model):
+    __tablename__ = 'exercise_library'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), nullable=False)
     category = db.Column(db.String(100))  # "Push", "Pull", "Legs", etc.
@@ -44,6 +49,7 @@ class ExerciseLibrary(db.Model):
     difficulty_level = db.Column(db.String(50))
 
 class WorkoutTemplate(db.Model):
+    __tablename__ = 'workout_template'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text)
@@ -54,6 +60,7 @@ class WorkoutTemplate(db.Model):
     created_by = db.Column(db.String(255))  # user_id or "system"
     
 class ProgressMeasurement(db.Model):
+    __tablename__ = 'progress_measurement'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.String(255), nullable=False)
     measurement_type = db.Column(db.String(50))  # "weight", "body_fat", "measurement"
@@ -64,6 +71,7 @@ class ProgressMeasurement(db.Model):
     notes = db.Column(db.Text)    
 
 class NutritionLog(db.Model):
+    __tablename__ = 'nutrition_logs'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.String(255), nullable=False)
     date = db.Column(db.Date, nullable=False)

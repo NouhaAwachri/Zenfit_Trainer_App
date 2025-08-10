@@ -37,9 +37,16 @@ class OpenRouterLLM(Runnable):
 # llm_engine.py
 import requests
 from langchain_core.runnables import Runnable
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # this loads variables from your .env into os.environ
+
+# Now you can access your key like this:
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 class LLMEngine(Runnable):
-    def __init__(self, provider="openrouter", model="deepseek", api_key=None):
+    def __init__(self, provider="openrouter", model="deepseek", api_key=OPENROUTER_API_KEY):
         self.provider = provider.lower()
         self.api_key = api_key
         self.model = model

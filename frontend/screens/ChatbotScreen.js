@@ -115,7 +115,7 @@ export default function CoachAIScreen({ navigation, user }) {
   useEffect(() => {
     const fetchChatHistory = async () => {
       try {
-        const res = await fetch(`http://192.168.1.8:5000/coach/history/${user?.uid}`);
+        const res = await fetch(`http://192.168.1.10:5000/coach/history/${user?.uid}`);
         const data = await res.json();
         setConversations(data);
       } catch (e) {
@@ -150,7 +150,7 @@ export default function CoachAIScreen({ navigation, user }) {
 
     try {
       setLoading(true);
-      const response = await fetch('http://192.168.1.8:5000/generate/history/${user?.uid}', {
+      const response = await fetch('http://192.168.1.10:5000/generate/history/${user?.uid}', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
