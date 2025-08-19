@@ -1,72 +1,676 @@
-# agents/routine_adjustment.py
+# agents/routine_adjustment.py - FIXED VERSION
 
-from joblib import Memory
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.messages import AIMessage, HumanMessage
 from models.conversation_model import Conversation, Message
+from models.workout_program import WorkoutProgram
+from models.workoutLog_model import WorkoutLog, WorkoutExercise
+from models.user_profile import UserProfile
 from models.db import db
+from datetime import datetime, timedelta
+from sqlalchemy import desc
 import re
+import json
 
-def classify_feedback_type(feedback):
-    """Enhanced feedback classification considering context"""
-    feedback_lower = feedback.lower()
+def routine_adjustment_agent(state, llm):
+    """
+    Direct adjustment agent that modifies the workout plan and returns ONLY the complete modified plan.
+    Properly respects user equipment, restrictions, and requests.
+    """
+    user_data = state.get("user_data", {})
+    goal = user_data.get("goal", "General Fitness")
+    firebase_uid = user_data.get("firebase_uid", "N/A")
+    name = user_data.get("name", "athlete")
     
-    # Progress indicators
-    progress_keywords = [
-        r'\d+\s*kg', r'\d+\s*lbs', r'\d+\s*pounds',
-        r'\d+\s*reps?', r'\d+\s*sets?',
-        'i did', 'i completed', 'i managed', 'i benched', 'i squatted',
-        'i deadlifted', 'i lifted', 'i ran', 'i walked',
-        'finished', 'completed', 'achieved', 'hit',
-        'felt good', 'felt great', 'felt easy', 'felt hard',
-        'was tough', 'was easy', 'went well', 'personal record',
-        'pr', 'new max', 'increased weight', 'progressed'
-    ]
-    
-    # Change request indicators
-    change_keywords = [
-        'change', 'modify', 'update', 'adjust', 'new routine',
-        'different workout', 'switch', 'replace', 'rewrite',
-        'entire program', 'whole program', 'full program',
-        'no jumping', 'cant jump', "can't jump", 'avoid jumping',
-        'too hard', 'too easy', 'too difficult', 'easier',
-        'injury', 'hurt', 'pain', 'sore', 'injured',
-        'no equipment', 'different equipment', 'at home',
-        'prefer', 'would rather', 'instead of', 'dont like', "don't like",
-        'hate', 'love', 'enjoy', 'boring', 'day 1', 'day 2', 'day 3', 'day 4','day 5','day 6', 'day 7',
-        'full body', 'upper body', 'lower body', 'cardio',
-        'bands', 'bodyweight', 'no dumbbell', 'using bands',
-        'more challenging', 'less challenging', 'not working'
-    ]
-    
-    # Question/clarification indicators
-    question_keywords = [
-        '?', 'how', 'what', 'when', 'where', 'why', 'should i',
-        'can i', 'is it okay', 'help', 'confused', 'not sure'
-    ]
-    
-    progress_matches = sum(1 for kw in progress_keywords if re.search(kw, feedback_lower))
-    change_matches = sum(1 for kw in change_keywords if kw in feedback_lower)
-    question_matches = sum(1 for kw in question_keywords if kw in feedback_lower)
-
-    if progress_matches > change_matches and progress_matches > question_matches and progress_matches > 0:
-        return 'progress'
-    elif change_matches > 0:
-        return 'routine_change'
-    elif question_matches > 0:
-        return 'question'
+    # Handle equipment properly
+    equipment = user_data.get("equipment", [])
+    if isinstance(equipment, list):
+        equipment_str = ", ".join(equipment) if equipment else "bodyweight only"
     else:
-        return 'other'
+        equipment_str = str(equipment) if equipment else "bodyweight only"
+    
+    # Handle restrictions properly
+    restrictions = user_data.get("restrictions", [])
+    if not isinstance(restrictions, list):
+        restrictions = [restrictions] if restrictions else []
+
+    # Get user's request and current plan
+    user_request = state.get("feedback", "")
+    current_plan = state.get("fitness_plan", "")
+    
+    print(f"🎯 User Request: {user_request}")
+    print(f"🛠️ Equipment: {equipment_str}")
+    print(f"🚫 Restrictions: {restrictions}")
+
+    # If no specific request, return current plan with proper filtering
+    if not user_request.strip():
+        filtered_plan = apply_equipment_and_restrictions(current_plan, equipment_str, restrictions)
+        state["fitness_plan"] = filtered_plan
+        state["messages"].append(AIMessage(content=filtered_plan))
+        return state
+
+    # Analyze the user request to determine intent
+    request_intent = analyze_user_intent(user_request)
+    print(f"🧠 Detected intent: {request_intent}")
+    
+    modified_plan = current_plan
+    
+    # Handle different types of requests with direct plan modifications
+    if request_intent == "remove_day":
+        day_to_remove = extract_day_from_feedback(user_request)
+        if day_to_remove:
+            print(f"🗑️ Removing Day {day_to_remove} from plan...")
+            modified_plan = remove_day_from_plan(current_plan, day_to_remove)
+            
+    elif request_intent == "reduce_days":
+        target_days = extract_target_days(user_request)
+        if target_days and target_days < 7:
+            print(f"🔢 Reducing plan to {target_days} days...")
+            modified_plan = reduce_days_in_plan(current_plan, target_days)
+            
+    elif request_intent == "remove_exercise":
+        exercise_name = extract_exercise_name(user_request)
+        if exercise_name:
+            print(f"🏋️ Removing exercise: {exercise_name}")
+            modified_plan = remove_exercise_from_plan(current_plan, exercise_name)
+            
+    elif request_intent == "replace_exercise":
+        old_exercise = extract_old_exercise(user_request)
+        new_exercise = extract_new_exercise(user_request)
+        if old_exercise and new_exercise:
+            print(f"🔄 Replacing '{old_exercise}' with '{new_exercise}'")
+            modified_plan = replace_exercise_in_plan(current_plan, old_exercise, new_exercise)
+    
+    elif request_intent == "add_restrictions":
+        # Handle new restrictions like "remove all jumping"
+        new_restrictions = extract_new_restrictions(user_request)
+        restrictions.extend(new_restrictions)
+        modified_plan = current_plan
+        print(f"➕ Added restrictions: {new_restrictions}")
+    
+    else:
+        # For complex modifications, use LLM with strict formatting
+        modified_plan = handle_complex_modification(
+            current_plan, user_request, goal, equipment_str, restrictions, llm
+        )
+    
+    # Apply equipment and restriction filters
+    modified_plan = apply_equipment_and_restrictions(modified_plan, equipment_str, restrictions)
+    
+    # Ensure proper format matching the original generation
+    modified_plan = ensure_exact_generation_format(modified_plan, equipment_str, goal)
+    
+    # Update state with the modified plan
+    state["fitness_plan"] = modified_plan
+    
+    # Return ONLY the plan as the response
+    state["messages"].append(AIMessage(content=modified_plan))
+    
+    print("✅ Plan modified and returned")
+    return state
+
+def handle_complex_modification(current_plan, user_request, goal, equipment_str, restrictions, llm):
+    """Handle complex modifications using LLM with strict output control"""
+    
+    # Build restriction constraints
+    restriction_text = build_restriction_constraints(equipment_str, restrictions)
+    
+    adjustment_prompt = ChatPromptTemplate.from_template(
+        """You are a fitness plan modifier. Modify the workout plan according to the user's request and return ONLY the complete modified workout plan in the EXACT format shown.
+
+USER PROFILE:
+- Goal: {goal}
+- Equipment Available: {equipment}
+- Restrictions: {restriction_constraints}
+
+CURRENT WORKOUT PLAN:
+{current_plan}
+
+USER REQUEST: "{user_request}"
+
+CRITICAL INSTRUCTIONS:
+1. You MUST respect the equipment constraint: {equipment}
+2. You MUST respect these restrictions: {restriction_constraints}
+3. Return ONLY the workout plan - NO explanations, NO chat, NO additional text
+4. Use the EXACT format from the current plan
+5. Keep the same structure: warm-up, main workout, cool-down sections
+6. Maintain the same exercise format: "- Exercise: X sets x X reps, Rest: X sec"
+7. If equipment is "bodyweight only" - use NO equipment-based exercises
+8. Apply all restrictions strictly
+
+EXAMPLE CORRECT FORMAT:
+## 4-Day Cardio Focus Workout Plan for Endurance
+
+This 4-day workout plan is designed for Endurance using bodyweight only. Each workout takes 30-45 minutes.
+
+### Day 1: Upper Body
+**Warm-up (5-10 min):**
+- Arm circles: 30 seconds
+- Leg swings: 10 each leg
+
+**Main Workout (30-35 min):**
+- Push-ups: 3 sets x 10 reps, Rest: 60 sec
+- Mountain climbers: 3 sets x 14 reps, Rest: 60 sec
+
+**Cool-down (5 min):**
+- Full body stretch: 30 seconds per muscle group
+- Deep breathing: 1 minute
+
+## Training Notes:
+- **Progression:** Increase reps by 2-3 each week
+- **Rest:** Take at least 1 day of rest between workout days
+- **Form:** Focus on proper form over speed
+- **Frequency:** Perform 4 days per week with rest days in between
+
+RETURN ONLY THE WORKOUT PLAN IN THIS EXACT FORMAT:
+"""
+    )
+
+    # Execute the prompt
+    chain = adjustment_prompt | llm | StrOutputParser()
+    
+    llm_response = chain.invoke({
+        "goal": goal,
+        "equipment": equipment_str,
+        "restriction_constraints": restriction_text,
+        "current_plan": current_plan,
+        "user_request": user_request
+    })
+    
+    # Extract only the plan part from LLM response
+    modified_plan = extract_clean_plan(llm_response)
+    return modified_plan
+
+def build_restriction_constraints(equipment_str, restrictions):
+    """Build clear constraint text for the LLM"""
+    constraints = []
+    
+    # Equipment constraints
+    if "bodyweight only" in equipment_str.lower():
+        constraints.append("NO equipment-based exercises (dumbbells, barbells, machines, etc.)")
+    
+    # Specific restrictions
+    for restriction in restrictions:
+        restriction_lower = restriction.lower()
+        if "no jumping" in restriction_lower or "remove jumping" in restriction_lower:
+            constraints.append("NO jumping exercises (jumping jacks, burpees, jump squats, etc.)")
+        if "no dumbbell" in restriction_lower:
+            constraints.append("NO dumbbell exercises")
+        if "no running" in restriction_lower:
+            constraints.append("NO running exercises")
+        if "no high impact" in restriction_lower:
+            constraints.append("NO high-impact exercises")
+    
+    return ". ".join(constraints) if constraints else "No specific restrictions"
+
+def analyze_user_intent(user_request):
+    """Enhanced analysis of user intent with better pattern matching"""
+    if not user_request:
+        return "general_modification"
+        
+    request_lower = user_request.lower().strip()
+    
+    # Remove entire day patterns
+    day_removal_patterns = [
+        r'remove day \d+',
+        r'delete day \d+',
+        r'take out day \d+',
+        r'get rid of day \d+',
+        r'eliminate day \d+',
+        r'skip day \d+'
+    ]
+    
+    for pattern in day_removal_patterns:
+        if re.search(pattern, request_lower):
+            return "remove_day"
+    
+    # Reduce to X days patterns
+    reduce_days_patterns = [
+        r'make it (\d+) days?',
+        r'reduce to (\d+) days?',
+        r'change to (\d+) days?',
+        r'(\d+) days? per week',
+        r'(\d+) days? only',
+        r'only (\d+) days?'
+    ]
+    
+    for pattern in reduce_days_patterns:
+        if re.search(pattern, request_lower):
+            return "reduce_days"
+    
+    # Remove specific exercise patterns - Enhanced
+    exercise_removal_keywords = [
+        'jumping jacks', 'jumping jack', 'jump',
+        'burpees', 'burpee',
+        'push ups', 'push-ups', 'pushups', 'push up',
+        'squats', 'squat',
+        'lunges', 'lunge',
+        'planks', 'plank',
+        'sit ups', 'sit-ups', 'situps',
+        'pull ups', 'pull-ups', 'pullups',
+        'mountain climbers', 'mountain climber',
+        'high knees', 'butt kicks',
+        'crunches', 'crunch',
+        'tricep dips', 'tricep dip'
+    ]
+    
+    removal_indicators = ['remove', 'delete', 'take out', 'get rid of', 'eliminate', 'no more', 'skip']
+    
+    for indicator in removal_indicators:
+        if indicator in request_lower:
+            for exercise in exercise_removal_keywords:
+                if exercise in request_lower:
+                    return "remove_exercise"
+    
+    # Special case for "remove all jumping" type requests
+    if any(phrase in request_lower for phrase in ['remove all jumping', 'no jumping', 'remove jumping', 'eliminate jumping']):
+        return "add_restrictions"
+    
+    # Replace exercise patterns
+    replace_patterns = [
+        r'replace.*?with',
+        r'substitute.*?with',
+        r'change.*?to',
+        r'swap.*?for'
+    ]
+    
+    for pattern in replace_patterns:
+        if re.search(pattern, request_lower):
+            return "replace_exercise"
+    
+    # Default to general modification
+    return "general_modification"
+
+def extract_new_restrictions(user_request):
+    """Extract new restrictions from user request"""
+    request_lower = user_request.lower()
+    new_restrictions = []
+    
+    if any(phrase in request_lower for phrase in ['remove all jumping', 'no jumping', 'remove jumping', 'eliminate jumping']):
+        new_restrictions.append("no jumping")
+    
+    if any(phrase in request_lower for phrase in ['no equipment', 'bodyweight only', 'remove equipment']):
+        new_restrictions.append("bodyweight only")
+        
+    return new_restrictions
+
+def extract_exercise_name(feedback):
+    """Enhanced exercise name extraction"""
+    feedback_lower = feedback.lower().strip()
+    
+    # Common exercise names with variations
+    exercise_patterns = {
+        'jumping': ['jumping jacks', 'jumping jack', 'jump', 'jumping'],
+        'burpees': ['burpees', 'burpee'],
+        'push-ups': ['push ups', 'push-ups', 'pushups', 'push up'],
+        'squats': ['squats', 'squat'],
+        'lunges': ['lunges', 'lunge'],
+        'planks': ['planks', 'plank'],
+        'mountain climbers': ['mountain climbers', 'mountain climber'],
+        'high knees': ['high knees'],
+        'butt kicks': ['butt kicks'],
+        'tricep dips': ['tricep dips', 'tricep dip'],
+        'crunches': ['crunches', 'crunch'],
+        'sit-ups': ['sit ups', 'sit-ups', 'situps']
+    }
+    
+    for standard_name, variations in exercise_patterns.items():
+        for variation in variations:
+            if variation in feedback_lower:
+                return standard_name
+    
+    # Generic extraction for other exercises
+    removal_patterns = [
+        r'remove\s+([a-zA-Z\s\-]+?)(?:\s|$|,|\.|\bfrom\b)',
+        r'delete\s+([a-zA-Z\s\-]+?)(?:\s|$|,|\.|\bfrom\b)',
+        r'take out\s+([a-zA-Z\s\-]+?)(?:\s|$|,|\.|\bfrom\b)',
+        r'get rid of\s+([a-zA-Z\s\-]+?)(?:\s|$|,|\.|\bfrom\b)',
+        r'eliminate\s+([a-zA-Z\s\-]+?)(?:\s|$|,|\.|\bfrom\b)',
+        r'no more\s+([a-zA-Z\s\-]+?)(?:\s|$|,|\.|\bfrom\b)'
+    ]
+    
+    for pattern in removal_patterns:
+        match = re.search(pattern, feedback_lower)
+        if match:
+            potential_exercise = match.group(1).strip()
+            # Filter out common words that aren't exercises
+            stop_words = ['the', 'all', 'any', 'of', 'in', 'from', 'exercises', 'workout']
+            if potential_exercise not in stop_words and len(potential_exercise) > 2:
+                return potential_exercise
+    
+    return None
+
+def apply_equipment_and_restrictions(plan_text, equipment_str, restrictions):
+    """Apply equipment and restriction filters to the plan"""
+    if not plan_text:
+        return plan_text
+    
+    modified_plan = plan_text
+    
+    # Handle bodyweight only constraint
+    if "bodyweight only" in equipment_str.lower():
+        modified_plan = remove_equipment_exercises(modified_plan)
+    
+    # Handle specific restrictions
+    for restriction in restrictions:
+        restriction_lower = restriction.lower()
+        
+        if "no jumping" in restriction_lower:
+            modified_plan = remove_jumping_exercises(modified_plan)
+        
+        if "no dumbbell" in restriction_lower:
+            modified_plan = remove_dumbbell_exercises(modified_plan)
+    
+    return modified_plan
+
+def remove_equipment_exercises(plan_text):
+    """Remove all equipment-based exercises"""
+    equipment_keywords = [
+        'dumbbell', 'barbell', 'kettlebell', 'cable', 'machine',
+        'weight', 'bench press', 'deadlift', 'bicep curl',
+        'tricep extension', 'lat pulldown', 'leg press'
+    ]
+    
+    lines = plan_text.split('\n')
+    filtered_lines = []
+    
+    for line in lines:
+        line_lower = line.lower()
+        # Check if this line contains an exercise with equipment
+        is_equipment_exercise = False
+        for keyword in equipment_keywords:
+            if keyword in line_lower and ('sets' in line_lower or 'reps' in line_lower):
+                is_equipment_exercise = True
+                break
+        
+        if not is_equipment_exercise:
+            filtered_lines.append(line)
+    
+    return '\n'.join(filtered_lines)
+
+def remove_jumping_exercises(plan_text):
+    """Remove all jumping-related exercises"""
+    jumping_patterns = [
+        r'(?i).*jumping jacks.*\n?',
+        r'(?i).*burpees.*\n?',
+        r'(?i).*jump.*(?:sets|reps).*\n?',
+        r'(?i).*high knees.*\n?',
+        r'(?i).*butt kicks.*\n?',
+        r'(?i).*box jumps.*\n?',
+        r'(?i).*squat jumps.*\n?',
+        r'(?i).*jumping lunges.*\n?'
+    ]
+    
+    modified_plan = plan_text
+    for pattern in jumping_patterns:
+        modified_plan = re.sub(pattern, '', modified_plan)
+    
+    # Clean up any double newlines
+    modified_plan = re.sub(r'\n\n+', '\n\n', modified_plan)
+    
+    return modified_plan
+
+def remove_dumbbell_exercises(plan_text):
+    """Remove dumbbell-specific exercises"""
+    dumbbell_pattern = r'(?i).*dumbbell.*(?:sets|reps).*\n?'
+    return re.sub(dumbbell_pattern, '', plan_text)
+
+def extract_clean_plan(response):
+    """Extract clean workout plan from LLM response"""
+    if not response:
+        return ""
+    
+    # Look for plan start markers
+    plan_start_patterns = [
+        r'## \d+-Day.*?Plan',
+        r'# \d+-Day.*?Plan',
+        r'### Day 1:'
+    ]
+    
+    plan_start = 0
+    for pattern in plan_start_patterns:
+        match = re.search(pattern, response, re.IGNORECASE)
+        if match:
+            plan_start = match.start()
+            break
+    
+    # Extract from plan start to end
+    clean_response = response[plan_start:].strip()
+    
+    # Remove any conversational text at the beginning
+    lines = clean_response.split('\n')
+    plan_lines = []
+    found_plan_start = False
+    
+    for line in lines:
+        # Skip conversational lines before the actual plan
+        if not found_plan_start:
+            if line.startswith('#') or 'Day 1:' in line or '**Warm-up' in line:
+                found_plan_start = True
+            elif any(phrase in line.lower() for phrase in [
+                "here's", "i've", "modified", "updated", "according to"
+            ]):
+                continue
+        
+        if found_plan_start or line.startswith('#') or 'Day' in line:
+            plan_lines.append(line)
+    
+    return '\n'.join(plan_lines).strip()
+
+def ensure_exact_generation_format(plan_text, equipment_str, goal):
+    """Ensure the plan matches the exact format from generation agent"""
+    if not plan_text:
+        return plan_text
+    
+    # Extract key information
+    day_count = len(re.findall(r'### Day \d+:', plan_text))
+    if day_count == 0:
+        day_count = 4  # Default fallback
+    
+    # Extract or determine plan style
+    style_match = re.search(r'## \d+-Day ([^\\n]+?) Workout Plan', plan_text)
+    if style_match:
+        style = style_match.group(1).strip()
+    else:
+        style = "Cardio Focus"  # Default from your example
+    
+    # Create proper header with description
+    header_lines = [
+        f"## {day_count}-Day {style} Workout Plan for {goal}",
+        "",
+        f"This {day_count}-day workout plan is designed for {goal} using {equipment_str}. Each workout takes 30-45 minutes.",
+        ""
+    ]
+    
+    # Extract content starting from first day
+    content_start = plan_text.find('### Day 1:')
+    if content_start != -1:
+        content = plan_text[content_start:]
+    else:
+        # If no Day 1 found, try to preserve existing content
+        lines = plan_text.split('\n')
+        content_lines = []
+        for line in lines:
+            if line.startswith('### Day') or line.startswith('**') or line.startswith('- ') or line.startswith('## Training'):
+                content_lines.append(line)
+        content = '\n'.join(content_lines)
+    
+    # Ensure Training Notes section exists
+    if "## Training Notes:" not in content:
+        training_notes = [
+            "",
+            "## Training Notes:",
+            "- **Progression:** Increase reps by 2-3 each week",
+            "- **Rest:** Take at least 1 day of rest between workout days",
+            "- **Form:** Focus on proper form over speed",
+            f"- **Frequency:** Perform {day_count} days per week with rest days in between"
+        ]
+        content += '\n'.join(training_notes)
+    else:
+        # Update frequency in existing notes
+        content = re.sub(
+            r'- \*\*Frequency:\*\* Perform \d+ days per week',
+            f'- **Frequency:** Perform {day_count} days per week',
+            content
+        )
+    
+    # Combine header with content
+    final_plan = '\n'.join(header_lines) + content
+    
+    return final_plan
+
+# Keep all the existing helper functions (remove_day_from_plan, reduce_days_in_plan, etc.)
+# but ensure they call ensure_exact_generation_format at the end
+
+def remove_day_from_plan(plan_text, day_number):
+    """Remove a specific day from the workout plan and reformat"""
+    lines = plan_text.split('\n')
+    result_lines = []
+    skip_section = False
+    day_counter = 0
+    
+    for line in lines:
+        if re.match(r'###?\s*Day\s*\d+:', line, re.IGNORECASE):
+            day_match = re.search(r'Day\s*(\d+)', line, re.IGNORECASE)
+            if day_match and int(day_match.group(1)) == day_number:
+                skip_section = True
+                continue
+            else:
+                skip_section = False
+                if not skip_section:
+                    day_counter += 1
+                    day_parts = line.split(':', 1)
+                    if len(day_parts) > 1:
+                        day_name = day_parts[1].strip()
+                        line = f"### Day {day_counter}: {day_name}"
+                    else:
+                        line = f"### Day {day_counter}:"
+        elif line.startswith('##') and not line.startswith('###'):
+            skip_section = False
+        
+        if not skip_section:
+            result_lines.append(line)
+    
+    result_text = '\n'.join(result_lines)
+    
+    # Extract equipment and goal for proper formatting
+    equipment_match = re.search(r'using ([^\\n\\.]+?)\\. Each workout', result_text)
+    equipment = equipment_match.group(1).strip() if equipment_match else "bodyweight only"
+    
+    goal_match = re.search(r'Plan for ([^\\n\\.]+)', result_text)
+    goal = goal_match.group(1).strip() if goal_match else "General Fitness"
+    
+    return ensure_exact_generation_format(result_text, equipment, goal)
+
+def reduce_days_in_plan(plan_text, target_days):
+    """Reduce the plan to a specific number of days"""
+    lines = plan_text.split('\n')
+    result_lines = []
+    current_day = 0
+    skip_section = False
+    day_counter = 0
+    
+    for line in lines:
+        if re.match(r'###?\s*Day\s*\d+:', line, re.IGNORECASE):
+            day_match = re.search(r'Day\s*(\d+)', line, re.IGNORECASE)
+            if day_match:
+                current_day = int(day_match.group(1))
+                if current_day > target_days:
+                    skip_section = True
+                    continue
+                else:
+                    skip_section = False
+                    day_counter += 1
+                    day_parts = line.split(':', 1)
+                    if len(day_parts) > 1:
+                        day_name = day_parts[1].strip()
+                        line = f"### Day {day_counter}: {day_name}"
+                    else:
+                        line = f"### Day {day_counter}:"
+        elif line.startswith('##') and not line.startswith('###'):
+            skip_section = False
+        
+        if not skip_section:
+            result_lines.append(line)
+    
+    result_text = '\n'.join(result_lines)
+    
+    # Extract equipment and goal for proper formatting
+    equipment_match = re.search(r'using ([^\\n\\.]+?)\\. Each workout', result_text)
+    equipment = equipment_match.group(1).strip() if equipment_match else "bodyweight only"
+    
+    goal_match = re.search(r'Plan for ([^\\n\\.]+)', result_text)
+    goal = goal_match.group(1).strip() if goal_match else "General Fitness"
+    
+    return ensure_exact_generation_format(result_text, equipment, goal)
+
+def remove_exercise_from_plan(plan_text, exercise_name):
+    """Remove a specific exercise from the workout plan"""
+    lines = plan_text.split('\n')
+    result_lines = []
+    
+    # Create flexible pattern to match the exercise
+    exercise_patterns = []
+    if exercise_name:
+        # Handle different variations of the exercise name
+        base_name = exercise_name.lower().replace('-', '').replace(' ', '')
+        exercise_patterns = [
+            re.compile(re.escape(exercise_name), re.IGNORECASE),
+            re.compile(exercise_name.replace(' ', '[ -]'), re.IGNORECASE),
+            re.compile(exercise_name.replace('-', '[ -]'), re.IGNORECASE)
+        ]
+    
+    for line in lines:
+        should_remove = False
+        line_lower = line.lower()
+        
+        # Check if this line contains the target exercise
+        for pattern in exercise_patterns:
+            if pattern.search(line) and ('sets' in line_lower or 'reps' in line_lower or 'seconds' in line_lower):
+                should_remove = True
+                print(f"🗑️ Removing line: {line}")
+                break
+        
+        if not should_remove:
+            result_lines.append(line)
+    
+    result_text = '\n'.join(result_lines)
+    
+    # Clean up extra blank lines
+    result_text = re.sub(r'\n\n\n+', '\n\n', result_text)
+    
+    # Extract equipment and goal for proper formatting
+    equipment_match = re.search(r'using ([^\\n\\.]+?)\\. Each workout', result_text)
+    equipment = equipment_match.group(1).strip() if equipment_match else "bodyweight only"
+    
+    goal_match = re.search(r'Plan for ([^\\n\\.]+)', result_text)
+    goal = goal_match.group(1).strip() if goal_match else "General Fitness"
+    
+    return ensure_exact_generation_format(result_text, equipment, goal)
+
+def replace_exercise_in_plan(plan_text, old_exercise, new_exercise):
+    """Replace an exercise with another in the workout plan"""
+    old_pattern = re.compile(re.escape(old_exercise), re.IGNORECASE)
+    result_text = old_pattern.sub(new_exercise, plan_text)
+    
+    # Extract equipment and goal for proper formatting
+    equipment_match = re.search(r'using ([^\\n\\.]+?)\\. Each workout', result_text)
+    equipment = equipment_match.group(1).strip() if equipment_match else "bodyweight only"
+    
+    goal_match = re.search(r'Plan for ([^\\n\\.]+)', result_text)
+    goal = goal_match.group(1).strip() if goal_match else "General Fitness"
+    
+    return ensure_exact_generation_format(result_text, equipment, goal)
 
 def extract_day_from_feedback(feedback):
     """Extract which day the user wants to modify"""
     feedback_lower = feedback.lower()
+    
     day_patterns = [
         r'day\s*(\d+)',
-        r'day\s*(\w+)',
-        r'workout\s*(\d+)',
-        r'session\s*(\d+)'
+        r'day\s*(one|two|three|four|five|six|seven)',
+        r'(\d+)(?:st|nd|rd|th)?\s*day'
     ]
     
     for pattern in day_patterns:
@@ -74,482 +678,66 @@ def extract_day_from_feedback(feedback):
         if match:
             day_ref = match.group(1)
             if day_ref.isdigit():
-                return f"Day {day_ref}"
-            elif day_ref in ['one', '1st', 'first']:
-                return "Day 1"
-            elif day_ref in ['two', '2nd', 'second']:
-                return "Day 2"
-            elif day_ref in ['three', '3rd', 'third']:
-                return "Day 3"
-            elif day_ref in ['four', '4th', 'fourth']:
-                return "Day 4"
-            elif day_ref in ['five', '5th', 'fifth']:
-                return "Day 5"
-            elif day_ref in ['six', '6th', 'sixth']:
-                return "Day 6"
-            elif day_ref in ['seven', '7th', 'seventh']:
-                return "Day 7"
+                return int(day_ref)
+            else:
+                day_map = {
+                    'one': 1, 'two': 2, 'three': 3, 'four': 4,
+                    'five': 5, 'six': 6, 'seven': 7
+                }
+                return day_map.get(day_ref, None)
     return None
 
-def get_conversation_context(user_id, limit=5):
-    """Get recent conversation history for context"""
-    try:
-        recent_conversations = Conversation.query.filter_by(user_id=user_id)\
-            .order_by(Conversation.created_at.desc()).limit(3).all()
-        
-        context = []
-        for conv in recent_conversations:
-            messages = Message.query.filter_by(conversation_id=conv.id)\
-                .order_by(Message.created_at.desc()).limit(limit).all()
-            
-            for msg in reversed(messages):  # Reverse to get chronological order
-                context.append(f"{msg.role}: {msg.content[:200]}...")
-        
-        return "\n".join(context[-10:])  # Last 10 messages
-    except Exception as e:
-        print(f"Error getting conversation context: {e}")
-        return ""
-
-def parse_current_plan_by_days(current_plan):
-    """Parse the current plan into individual days"""
-    days = {}
-    current_day = None
-    current_content = []
+def extract_target_days(feedback):
+    """Extract target number of days from feedback"""
+    feedback_lower = feedback.lower()
     
-    lines = current_plan.split('\n')
-    
-    for line in lines:
-        # Check if line starts a new day
-        day_match = re.match(r'\*\*Day\s*(\d+):', line, re.IGNORECASE)
-        if day_match:
-            # Save previous day if it exists
-            if current_day:
-                days[current_day] = '\n'.join(current_content)
-            
-            # Start new day
-            current_day = f"Day {day_match.group(1)}"
-            current_content = [line]
-        else:
-            if current_day:
-                current_content.append(line)
-    
-    # Save the last day
-    if current_day:
-        days[current_day] = '\n'.join(current_content)
-    
-    return days
-
-def reconstruct_plan(days_dict, target_day, new_day_content):
-    """Reconstruct the full plan with the updated day"""
-    updated_days = days_dict.copy()
-    updated_days[target_day] = new_day_content
-    
-    # Reconstruct in order
-    full_plan = []
-    for day_num in [1, 2, 3, 4, 5, 6, 7]:
-        day_key = f"Day {day_num}"
-        if day_key in updated_days:
-            full_plan.append(updated_days[day_key])
-    
-    return '\n\n'.join(full_plan)
-
-import re
-from typing import List
-
-def filter_forbidden_exercises(text: str, equipment_str: str, restrictions: str) -> str:
-    equipment_str = equipment_str.lower()
-    restrictions = restrictions.lower()
-
-    remove_dumbbell = any(phrase in equipment_str for phrase in [
-        "no dumbbell", "no dumbbells", "without dumbbell", "bodyweight only"
-    ])
-    remove_barbell = "no barbell" in equipment_str
-    remove_kettlebell = "no kettlebell" in equipment_str or "bodyweight only" in equipment_str
-    remove_machines = "no machines" in equipment_str or "bodyweight only" in equipment_str
-
-    if remove_dumbbell:
-        text = re.sub(r'(?i)dumbbell[^\n]*\n?', '', text)
-
-    if remove_barbell:
-        text = re.sub(r'(?i)barbell[^\n]*\n?', '', text)
-
-    if remove_kettlebell:
-        text = re.sub(r'(?i)kettlebell[^\n]*\n?', '', text)
-
-    if remove_machines:
-        text = re.sub(r'(?i)machine[^\n]*\n?', '', text)
-
-    if "no jumping" in restrictions:
-        forbidden = [
-            r'(?i)jumping jacks[^\n]*', r'jump rope[^\n]*', r'burpees[^\n]*',
-            r'box jumps[^\n]*', r'squat jumps[^\n]*', r'jumping lunges[^\n]*',
-            r'plyometric[^\n]*', r'mountain climbers[^\n]*'
-        ]
-        for pattern in forbidden:
-            text = re.sub(pattern + r'\n?', '', text)
-
-    return text
-
-
-def routine_adjustment_agent(state, llm):
-    """Enhanced routine adjustment agent with memory, context awareness, and detailed workout generation."""
-    user_data = state.get("user_data", {})
-    goal = user_data.get("goal", "N/A")
-    firebase_uid = user_data.get("firebase_uid", "N/A")
-    name = user_data.get("name", "athlete")
-    
-    # Handle equipment robustly
-    equipment = user_data.get("equipment", [])
-    if isinstance(equipment, list):
-        equipment_str = ", ".join(equipment) if equipment else "bodyweight only"
-    else:
-        equipment_str = str(equipment) if equipment else "bodyweight only"
-    
-    restrictions = user_data.get("restrictions", [])  # e.g. ["no jumping", "no dumbbells"]
-
-    print(f"User equipment preferences: {equipment_str}")
-    print(f"User restrictions: {restrictions}")
-
-    # Get original feedback and parsed feedback
-    feedback_text = state.get("feedback", "")
-    parsed_feedback = state.get("parsed_feedback", "")
-    current_plan = state.get("fitness_plan", "")
-    
-    # Get conversation context for memory
-    conversation_context = get_conversation_context(firebase_uid)
-    
-    # Get recent messages from current session
-    session_messages = state.get("messages", [])
-    recent_session_context = "\n".join([
-        f"{msg.__class__.__name__}: {getattr(msg, 'content', '')[:150]}..."
-        for msg in session_messages[-5:]  # Last 5 messages
-    ])
-    
-    feedback_type = classify_feedback_type(feedback_text)
-    
-    print(f"📊 Feedback classified as: {feedback_type}")
-    print(f"📤 Original feedback: {feedback_text}")
-    print(f"🧠 Parsed feedback: {parsed_feedback}")
-
-    # Build comprehensive context
-    full_context = f"""
-RECENT CONVERSATION HISTORY:
-{conversation_context}
-
-CURRENT SESSION CONTEXT:
-{recent_session_context}
-
-USER PROFILE:
-- Goal: {goal}
-- Equipment: {equipment_str}
-- Restrictions: {', '.join(restrictions) if restrictions else 'None'}
-- Name: {name}
-"""
-
-    # Helper: build critical rules text based on restrictions
-    rules = [
-        f"The user has access to: {equipment_str}",
-        "Use ONLY exercises with the allowed equipment."
+    patterns = [
+        r'make it (\d+) days?',
+        r'reduce to (\d+) days?',
+        r'change to (\d+) days?',
+        r'(\d+) days? per week',
+        r'(\d+) days? only',
+        r'only (\d+) days?'
     ]
-    if any("no dumbbell" in r.lower() for r in restrictions):
-        rules.append("DO NOT include any dumbbell exercises.")
-    if any("no barbell" in r.lower() for r in restrictions):
-        rules.append("DO NOT include any barbell exercises.")
-    if any("no kettlebell" in r.lower() for r in restrictions):
-        rules.append("DO NOT include any kettlebell exercises.")
-    if any("no jumping" in r.lower() for r in restrictions):
-        rules.append("DO NOT include any jumping or plyometric exercises.")
-    rules_text = "\n".join(f"- {rule}" for rule in rules)
-
-    if feedback_type == 'progress':
-        # Respond supportively, no plan changes unless requested
-        response_prompt = ChatPromptTemplate.from_template(
-            """You are a supportive fitness coach responding to a progress update.
-
-CONTEXT:
-{context}
-
-CURRENT PLAN:
-{current_plan}
-
-The user reported: "{feedback}"
-
-PARSED FEEDBACK SUMMARY: {parsed_feedback}
-
-Respond with:
-1. Specific congratulations based on their progress
-2. Ask 1-2 follow-up questions about how it felt or what they noticed
-3. Give brief encouragement referencing their goal
-4. Suggest when to progress further (if appropriate)
-5. DO NOT change their routine unless they specifically request it
-
-Keep it conversational, personal, and supportive. Start with "Hey {name}!" and reference their previous conversations if relevant.
-"""
-        )
-        chain = response_prompt | llm | StrOutputParser()
-        response = chain.invoke({
-            "name": name,
-            "feedback": feedback_text,
-            "parsed_feedback": parsed_feedback,
-            "current_plan": current_plan[:500],
-            "context": full_context
-        })
-        state["messages"].append(AIMessage(content=response))
-
-    elif feedback_type == 'routine_change':
-        target_day = extract_day_from_feedback(feedback_text)
-        days_dict = parse_current_plan_by_days(current_plan) if current_plan else {}
-
-        if target_day and current_plan:
-            current_day_content = days_dict.get(target_day, "No content found for this day")
-
-            routine_change_prompt = ChatPromptTemplate.from_template(
-f"""You are an expert AI fitness coach with memory of previous conversations.
-
-CONTEXT & MEMORY:
-{{context}}
-
-CRITICAL RULES:
-{rules_text}
-
-SPECIFIC TASK: Rewrite ONLY {{target_day}} with a **clear, fully structured workout** as follows:
-
-1. Warm-up (5-10 min) — list specific bodyweight warm-up exercises.
-2. Main Workout (30-45 min) — list **specific exercises** with:
-   - Sets x Reps (e.g., 3 sets x 10-12 reps)
-   - Exercise name (no dumbbells, barbells, kettlebells if restricted)
-3. Cardio & Core (optional section, specify time and exercises)
-4. Cool-down (5-10 min) — list specific stretches or mobility work
-
-Include rest periods between sets and exercises.
-
-Use exercises appropriate for the user's equipment and restrictions.
-
-If user feedback indicates discomfort or dislikes (e.g., no planks), do not include those exercises.
-
-Add personalized training tips and encouragement referencing user's goal and journey.
-
-Format your response clearly with markdown headers and bullet points, like this:
-
-**{{target_day}}: [Workout Title] (Approx. [X] min)**
-
-- Warm-up:
-  - [Exercise 1]
-  - [Exercise 2]
-- Main Workout:
-  - [Exercise 1]: [sets] x [reps]
-  - [Exercise 2]: [sets] x [reps]
-- Cardio & Core:
-  - [Exercise 1]: [sets] x [reps]
-- Cool-down:
-  - [Stretch 1]
-
-Additional notes:
-- [Rest time, progression tips]
-
-Personal encouragement:
-- [Motivational message]
-
-Current {{target_day}} content:
-{{current_day_content}}
-
-Original user request: "{{feedback}}"
-Parsed requirements: "{{parsed_feedback}}"
-"""
-            )
-            if hasattr(llm, 'bind'):
-                chain = routine_change_prompt | llm.bind(temperature=0.2) | StrOutputParser()
-            else:
-                chain = routine_change_prompt | llm | StrOutputParser()
-
-            new_day_content = chain.invoke({
-                "target_day": target_day,
-                "goal": goal,
-                "equipment": equipment_str,
-                "current_day_content": current_day_content,
-                "feedback": feedback_text,
-                "parsed_feedback": parsed_feedback,
-                "context": full_context
-            })
-
-            updated_full_plan = reconstruct_plan(days_dict, target_day, new_day_content)
-
-            print(f"📥 Updated {target_day} content:\n{new_day_content}")
-            state["fitness_plan"] = updated_full_plan
-            state["messages"].append(AIMessage(content=f"🔄 I've updated {target_day} with a detailed structured workout:\n\n{new_day_content}"))
-
-        else:
-            # Check if user requested a full program rewrite
-            is_full_rewrite = any(phrase in feedback_text.lower() for phrase in [
-                'rewrite the entire', 'rewrite entire', 'entire program', 'whole program',
-                'full program', 'rewrite the program', 'rewrite program', 'start over',
-                'completely new', 'from scratch'
-            ])
-
-            if is_full_rewrite:
-                # Replace with actual user-provided values
-                user_name = state.get("user_name", "friend")  # or data.get(...)
-                previous_goal = state.get("goal", "your fitness goal")  # or data.get(...)
-
-                prompt = f"""
-        You are a highly skilled AI fitness coach who understands the user's fitness goals, preferences, environment, and constraints. Your task is to **create a completely new and personalized workout program** for the user based on their latest feedback and needs.
-
-        USER NAME: {user_name}
-        USER GOAL: {previous_goal}
-
-        TASK: Create a COMPLETE workout program that exactly follows the user's preferences and request.
-        - Do NOT assume a 4-day structure or any default duration.
-        - If the user specified number of days, structure, or type of exercises, follow that.
-        - If not, use your expert judgment to suggest an effective and engaging structure.
-        - Consider user's environment, available equipment, fitness level, past struggles, and goals.
-        - Make it engaging, realistic, and sustainable.
-
-        IMPORTANT: This replaces the previous routine entirely. Make it cohesive, structured, and motivating.
-
-        OUTPUT FORMAT (MARKDOWN):
-        Write your response using the format below:
-
-        ## Hey {user_name}, based on your goal of **{previous_goal}**, here’s your brand-new personalized workout program:
-
-        **[Workout Title or Focus Area] (Approx. [Duration] min)**
-        - Warm-up:
-        - Exercise 1: sets x reps
-        - Exercise 2: sets x reps
-        - Main Workout:
-        - Exercise 1: sets x reps
-        - Exercise 2: sets x reps
-        - Optional (Core/Cardio/Flexibility):
-        - Exercise 1: sets x reps
-        - Cool-down:
-        - Stretch 1
-        - Stretch 2
-
-        (Repeat the above structure for each session or workout block as needed)
-
-        Make sure the tone is friendly, motivational, and clearly structured. Suggest progression tips or how to repeat or build on the plan.
-
-        Close with a short encouraging message, e.g., “Let’s do this!” or “Proud of your dedication 💪”.
-        """
-
-                # Create the prompt template
-                routine_change_prompt = ChatPromptTemplate.from_template(prompt)
-
-
-                
-            else:
-                routine_change_prompt = ChatPromptTemplate.from_template(
-f"""You are an expert AI fitness coach with memory of this user's fitness journey.
-
-CONTEXT & HISTORY:
-{{context}}
-
-CRITICAL RULES:
-{rules_text}
-
-Current Plan:
-{{current_plan}}
-
-Original Request: "{{feedback}}"
-Parsed Requirements: "{{parsed_feedback}}"
-
-TASK: Adjust the workout plan based on:
-- Their specific request
-- Conversation history and preferences  
-- Equipment limitations
-- Past feedback patterns
-
-Provide the adjusted plan with personal touches based on your knowledge of their journey.
-"""
-                )
-
-            if hasattr(llm, 'bind'):
-                chain = routine_change_prompt | llm.bind(temperature=0.2) | StrOutputParser()
-            else:
-                chain = routine_change_prompt | llm | StrOutputParser()
-
-            updated_plan = chain.invoke({
-                "name": name,
-                "goal": goal,
-                "equipment": equipment_str,
-                "current_plan": current_plan,
-                "feedback": feedback_text,
-                "parsed_feedback": parsed_feedback,
-                "context": full_context
-            })
-        
-
-
-            print("📥 LLM responded with:\n", updated_plan)
-            state["fitness_plan"] = updated_plan
-            state["messages"].append(AIMessage(content=f"🔄 I've redesigned your plan based on our conversations:\n\n{updated_plan}"))
-
-    elif feedback_type == 'question':
-        question_prompt = ChatPromptTemplate.from_template(
-            """You are a knowledgeable fitness coach with memory of this user's journey.
-
-CONTEXT & CONVERSATION HISTORY:
-{context}
-
-CURRENT PLAN:
-{current_plan}
-
-The user asked: "{feedback}"
-Parsed context: "{parsed_feedback}"
-
-User Profile:
-- Name: {name}
-- Goal: {goal}
-- Equipment: {equipment}
-
-Respond with:
-1. A helpful answer referencing their specific situation and history
-2. Practical advice based on their current plan and equipment
-3. Encouragement that acknowledges their journey
-4. Ask if they need any plan adjustments
-
-Keep it conversational and personal. Start with "Hey {name}!"
-"""
-        )
-        chain = question_prompt | llm | StrOutputParser()
-        response = chain.invoke({
-            "name": name,
-            "feedback": feedback_text,
-            "parsed_feedback": parsed_feedback,
-            "current_plan": current_plan[:500],
-            "context": full_context,
-            "goal": goal,
-            "equipment": equipment_str
-        })
-        state["messages"].append(AIMessage(content=response))
-
-    else:
-        general_prompt = ChatPromptTemplate.from_template(
-            """You are a helpful fitness coach with memory of this user's fitness journey.
-
-CONTEXT & HISTORY:
-{context}
-
-The user said: "{feedback}"
-Parsed context: "{parsed_feedback}"
-
-User Profile:
-- Name: {name}
-- Goal: {goal}
-
-Respond helpfully using your knowledge of their journey. Reference previous conversations when relevant. 
-If they might want routine changes, ask them to be more specific.
-
-Keep it conversational and supportive. Start with "Hey {name}!"
-"""
-        )
-        chain = general_prompt | llm | StrOutputParser()
-        response = chain.invoke({
-            "name": name,
-            "feedback": feedback_text,
-            "parsed_feedback": parsed_feedback,
-            "context": full_context,
-            "goal": goal
-        })
-        state["messages"].append(AIMessage(content=response))
-
-    return state
+    
+    for pattern in patterns:
+        match = re.search(pattern, feedback_lower)
+        if match:
+            return int(match.group(1))
+    
+    return None
+
+def extract_old_exercise(feedback):
+    """Extract the exercise to be replaced"""
+    feedback_lower = feedback.lower()
+    
+    patterns = [
+        r'replace\s+([a-zA-Z\s\-]+?)\s+with',
+        r'substitute\s+([a-zA-Z\s\-]+?)\s+with',
+        r'change\s+([a-zA-Z\s\-]+?)\s+to',
+        r'swap\s+([a-zA-Z\s\-]+?)\s+for'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, feedback_lower)
+        if match:
+            return match.group(1).strip()
+    
+    return None
+
+def extract_new_exercise(feedback):
+    """Extract the replacement exercise"""
+    feedback_lower = feedback.lower()
+    
+    patterns = [
+        r'with\s+([a-zA-Z\s\-]+?)(?:\s|$|,|\.)',
+        r'to\s+([a-zA-Z\s\-]+?)(?:\s|$|,|\.)',
+        r'for\s+([a-zA-Z\s\-]+?)(?:\s|$|,|\.)'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, feedback_lower)
+        if match:
+            return match.group(1).strip()
+    
+    return None

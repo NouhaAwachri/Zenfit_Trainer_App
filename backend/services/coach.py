@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from typing import TypedDict, List
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import HumanMessage, BaseMessage, AIMessage
-
+import re
 from services.llm_engine import LLMEngine
 from services.rag_pipeline import load_retriever
 from models.user_profile import UserProfile
@@ -34,7 +34,7 @@ class State(TypedDict):
 # 🤖 Main Fitness Coach Orchestrator
 class AIFitnessCoach:
     def __init__(self):
-        self.llm = LLMEngine(provider="openrouter", model="deepseek", api_key=api_key)
+        self.llm = LLMEngine(provider="ollama", model="qwen2.5:3b-instruct", timeout=180)
         self.retriever = load_retriever()
         self.graph = self.create_graph()
 
@@ -70,6 +70,8 @@ class AIFitnessCoach:
         }
 
     # 🔄 Entry point for follow-up (adjustments based on feedback)
+    # In acoach.py
+
     def run_followup(self, user_id: str, current_plan: str, feedback: str):
         user_profile = UserProfile.query.filter_by(firebase_uid=user_id).first()
         if not user_profile:
@@ -96,12 +98,89 @@ class AIFitnessCoach:
             messages=[HumanMessage(content=f"User feedback: {feedback}")],
         )
 
-        # ⛓️ Feedback collection ➜ Routine adjustment
-        for agent in [
+        print(f"🔄 Starting followup pipeline...")
+        print(f"📋 Initial plan length: {len(current_plan)} chars")
+
+        # Store the original plan for comparison
+        original_plan = current_plan
+        plan_modified = False
+
+        # ⛓️ Feedback collection ➜ Routine adjustment ➜ Progress monitoring
+        for i, agent in enumerate([
             lambda s: feedback_collection_agent(s, self.llm),
             lambda s: routine_adjustment_agent(s, self.llm),
-             lambda s: progress_monitoring_agent(s, self.llm),
-        ]:
-            state = agent(state)
+            lambda s: progress_monitoring_agent(s, self.llm),
+        ]):
+            try:
+                print(f"🤖 Running agent {i+1}...")
+                
+                # Store state before agent
+                plan_before = state.get("fitness_plan", "")
+                
+                # Run the agent
+                new_state = agent(state)
+                if new_state:
+                    state = new_state
+                
+                # Check if plan was modified by this agent
+                plan_after = state.get("fitness_plan", "")
+                if plan_after != plan_before and plan_after != original_plan:
+                    plan_modified = True
+                    print(f"✅ Agent {i+1} modified the plan (length: {len(plan_after)} chars)")
+                    
+                    # If routine_adjustment_agent modified the plan, don't let future agents overwrite it
+                    if i == 1:  # routine_adjustment_agent is index 1
+                        print(f"🔒 Protecting plan changes from routine_adjustment_agent")
+                        # Store the modified plan
+                        modified_plan = plan_after
+                        
+                        # Continue with remaining agents but restore plan if they overwrite
+                        original_messages = state.get("messages", []).copy()
+                        
+                        # Run remaining agents
+                        for j, remaining_agent in enumerate([lambda s: progress_monitoring_agent(s, self.llm)][i-1:]):
+                            try:
+                                print(f"🤖 Running remaining agent {j+2}...")
+                                before_plan = state.get("fitness_plan", "")
+                                
+                                remaining_state = remaining_agent(state)
+                                if remaining_state:
+                                    state = remaining_state
+                                
+                                after_plan = state.get("fitness_plan", "")
+                                
+                                # If this agent overwrote our plan changes, restore them
+                                if after_plan != before_plan and before_plan == modified_plan:
+                                    print(f"⚠️ Agent {j+2} overwrote plan changes, restoring...")
+                                    state["fitness_plan"] = modified_plan
+                                
+                            except Exception as e:
+                                print(f"[run_followup] Remaining agent {j+2} error: {e}")
+                        
+                        break  # Don't run any more agents in the main loop
+                else:
+                    print(f"📋 Agent {i+1} did not modify the plan")
+                    
+            except Exception as e:
+                print(f"[run_followup] Agent {i+1} error: {e}")
 
-        return state["messages"]
+        # Final verification
+        final_plan = state.get("fitness_plan", current_plan)
+        if final_plan != original_plan:
+            original_days = len(re.findall(r'### Day \d+:', original_plan))
+            final_days = len(re.findall(r'### Day \d+:', final_plan))
+            print(f"🎯 FINAL RESULT: Plan changed from {original_days} days to {final_days} days")
+        else:
+            print(f"📋 FINAL RESULT: No plan changes")
+
+        # ✅ Guarantee a proper list of messages
+        messages = state.get("messages", [])
+        if not messages:
+            messages = [AIMessage(content=final_plan)]  # fallback: return current plan
+
+        print(f"📤 Returning {len(messages)} messages")
+        for i, msg in enumerate(messages):
+            if hasattr(msg, 'content'):
+                print(f"📨 Message {i}: {str(msg.content)[:100]}...")
+
+        return messages

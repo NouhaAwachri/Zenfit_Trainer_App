@@ -19,7 +19,7 @@ import HomeScreen from './screens/HomeScreen';
 import ChatbotScreen from './screens/ChatbotScreen';
 import GenProgramScreen from './screens/GenProgramScreen'; 
 import WorkoutLogsScreen from './screens/WorkoutLogsScreen'; // Assuming you have a WorkoutLog screen
-import DashboardScreen from './screens/DashboardScreen';   
+import PerformanceDashboardScreen from './screens/PerformanceDashboardScreen';   
 import Login from './screens/Login';
 import Signup from './screens/Signup';
 import ResetPassword from './screens/ResetPassword';
@@ -35,7 +35,7 @@ function CustomDrawerContent(props) {
   const drawerItems = [
     { label: '🏠 Home', route: 'HomeScreen' },
     { label: '💬 Generate Workout Program', route: 'GenProgram' },
-    { label: '💬 Chat with Coach', route: 'Chatbot' },
+    //{ label: '💬 Chat with Coach', route: 'Chatbot' },
     { label: '📊 Workout Logs', route: 'WorkoutLogs' },
     { label: '📊 Progress Dashboard', route: 'Dashboard' },
   ];
@@ -94,7 +94,7 @@ function AppDrawer({ logout, user }) {
         {(props) => <WorkoutLogsScreen {...props} user={user} />}
       </Drawer.Screen>
       <Drawer.Screen name="Dashboard">
-        {(props) => <DashboardScreen {...props} user={user} />}
+        {(props) => <PerformanceDashboardScreen {...props} user={user} />}
       </Drawer.Screen>
     </Drawer.Navigator>
   );

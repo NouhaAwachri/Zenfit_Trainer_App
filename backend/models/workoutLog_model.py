@@ -1,5 +1,5 @@
 from models.db import db
-
+from datetime import datetime
 class WorkoutLog(db.Model):
     __tablename__ = 'workout_logs'
     id = db.Column(db.Integer, primary_key=True)
@@ -35,7 +35,7 @@ class WorkoutExercise(db.Model):
     actual_sets = db.Column(db.Integer)    # What user actually completed
     actual_reps = db.Column(db.Integer)    # What user actually completed  
     weight_used = db.Column(db.Float)      # Weight used for exercise
-
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
     workout_program = db.relationship("WorkoutProgram", backref="exercises")
 
 class ExerciseLibrary(db.Model):

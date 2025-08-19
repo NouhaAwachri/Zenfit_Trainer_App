@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect } from '@react-navigation/native';
 
 const { width, height } = Dimensions.get('window');
 
@@ -27,6 +28,7 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
   // State for current workout plan
   const [currentPlan, setCurrentPlan] = useState(null);
   const [workoutProgress, setWorkoutProgress] = useState(null);
+  const [planVersion, setPlanVersion] = useState(null); // Track plan version for updates
   
   // UI state
   const [loading, setLoading] = useState(false);
@@ -41,12 +43,118 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
   const [workoutTimer, setWorkoutTimer] = useState(0);
   const [workoutStartTime, setWorkoutStartTime] = useState(null);
 
+  // Simple scroll ref without complex tracking
+  const scrollViewRef = useRef(null);
+
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
 
-  // Fetch current workout plan
-  const fetchCurrentPlan = async () => {
+  // Check for plan updates and auto-generate next week
+  const checkAndUpdatePlan = async () => {
+    if (!user?.uid || !currentPlan) return;
+    
+    try {
+      // Check if current week is completed
+      const currentWeekKey = getCurrentWeekKey();
+      if (currentWeekKey && isWeekCompleted(currentWeekKey)) {
+        console.log(`✅ Week ${currentWeekKey} completed, checking for next week...`);
+        
+        const nextWeekNum = parseInt(currentWeekKey.replace('Week ', '')) + 1;
+        const nextWeekKey = `Week ${nextWeekNum}`;
+        
+        // Check if next week exists in current plan
+        if (!currentPlan.plan[nextWeekKey]) {
+          console.log(`🔄 Generating Week ${nextWeekNum}...`);
+          await generateNextWeek(nextWeekNum);
+        }
+      }
+    } catch (err) {
+      console.error("❌ Error checking plan updates:", err);
+    }
+  };
+
+  // Get current active week
+  const getCurrentWeekKey = () => {
+    if (!currentPlan?.plan) return null;
+    
+    const weeks = Object.keys(currentPlan.plan).sort((a, b) => {
+      const weekA = parseInt(a.replace('Week ', ''));
+      const weekB = parseInt(b.replace('Week ', ''));
+      return weekA - weekB;
+    });
+    
+    // Find the first incomplete week
+    for (const weekKey of weeks) {
+      if (!isWeekCompleted(weekKey)) {
+        return weekKey;
+      }
+    }
+    
+    // If all weeks are completed, return the last week + 1
+    const lastWeekNum = parseInt(weeks[weeks.length - 1].replace('Week ', ''));
+    return `Week ${lastWeekNum + 1}`;
+  };
+
+  // Check if a week is completed
+  const isWeekCompleted = (weekKey) => {
+    if (!currentPlan?.plan?.[weekKey]) return false;
+    
+    const weekData = currentPlan.plan[weekKey];
+    const allExercises = Object.values(weekData).flatMap(day => day.exercises || []);
+    const completedExercises = allExercises.filter(ex => ex.completed);
+    
+    return allExercises.length > 0 && completedExercises.length === allExercises.length;
+  };
+
+  // Generate next week based on previous week
+  const generateNextWeek = async (weekNumber) => {
+    try {
+      console.log(`🏗️ Generating Week ${weekNumber}...`);
+      
+      const response = await fetch(`${BACKEND_URL}/workout/generate-next-week`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user.uid,
+          week_number: weekNumber,
+          base_plan: currentPlan.plan[`Week ${weekNumber - 1}`] || currentPlan.plan['Week 1']
+        })
+      });
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const result = await response.json();
+      console.log(`✅ Week ${weekNumber} generated successfully`);
+      
+      // 🚀 SIMPLIFIED: Just update state without scroll management
+      setCurrentPlan(prevPlan => ({
+        ...prevPlan,
+        plan: {
+          ...prevPlan.plan,
+          [`Week ${weekNumber}`]: result.week_data
+        }
+      }));
+
+      // Show success message
+      Alert.alert(
+        '🎉 New Week Unlocked!',
+        `Week ${weekNumber} has been generated based on your previous progress. Keep up the great work!`,
+        [{ text: 'Let\'s Go!', style: 'default' }]
+      );
+
+    } catch (err) {
+      console.error(`❌ Error generating Week ${weekNumber}:`, err);
+      Alert.alert(
+        'Week Generation Failed',
+        'Could not generate the next week. Please try regenerating your workout plan.',
+        [{ text: 'OK', style: 'default' }]
+      );
+    }
+  };
+
+  // Fetch current workout plan with version checking
+  const fetchCurrentPlan = async (force = false) => {
     if (!user?.uid) {
       console.log("❌ No user UID available");
       return;
@@ -57,7 +165,7 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
       setError(null);
       
       console.log(`🔄 Fetching current plan for user: ${user.uid}`);
-      const response = await fetch(`${BACKEND_URL}/workout/current/${user.uid}`);
+      const response = await fetch(`${BACKEND_URL}/workout/current/${user.uid}?v=${Date.now()}`);
       
       console.log(`📡 Response status: ${response.status}`);
       
@@ -70,7 +178,30 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
       const data = await response.json();
       console.log("✅ Received plan data:", JSON.stringify(data, null, 2));
       
-      setCurrentPlan(data);
+      // Check if this is a new plan version
+      const newPlanVersion = data.plan_version || data.updated_at || Date.now();
+      const isNewPlan = !planVersion || newPlanVersion !== planVersion;
+      
+      if (isNewPlan || force) {
+        console.log("🔄 Plan updated, refreshing interface...");
+        
+        setCurrentPlan(data);
+        setPlanVersion(newPlanVersion);
+        
+        // Reset expanded states when plan changes
+        setExpandedWeek(null);
+        setExpandedDay(null);
+        
+        // Show update notification if not initial load
+        if (planVersion && isNewPlan) {
+          Alert.alert(
+            '🔄 Workout Plan Updated!',
+            'Your workout plan has been updated with new exercises and progressions.',
+            [{ text: 'Got it!', style: 'default' }]
+          );
+        }
+      }
+      
       setError(null);
     } catch (err) {
       console.error("❌ Error fetching current plan:", err);
@@ -86,12 +217,12 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
     
     try {
       console.log(`🔄 Fetching progress for user: ${user.uid}`);
-      const response = await fetch(`${BACKEND_URL}/workout/progress/${user.uid}`);
+      const response = await fetch(`${BACKEND_URL}/workout/progress/${user.uid}?v=${Date.now()}`);
       
       if (response.ok) {
         const data = await response.json();
         console.log("✅ Received progress data:", data);
-        setWorkoutProgress(data.progress); // Note: accessing .progress from response
+        setWorkoutProgress(data.progress);
       } else {
         console.log(`❌ Progress fetch failed: ${response.status}`);
       }
@@ -100,73 +231,76 @@ const WorkoutLogsScreen = ({ navigation, user }) => {
     }
   };
 
-  // Toggle exercise completion
-const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}) => {
-  try {
-    console.log(`🔄 Toggling exercise ${exerciseId} to ${completed ? 'completed' : 'incomplete'}`);
-    
-    const response = await fetch(`${BACKEND_URL}/workout/exercise/${exerciseId}/complete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        completed: completed,
-        ...exerciseData
-      })
-    });
-
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-    console.log("✅ Exercise toggled successfully");
-    
-    // ✅ Update local state immediately for instant checkbox/green background feedback
-    setCurrentPlan(prevPlan => {
-      if (!prevPlan || !prevPlan.plan) return prevPlan;
+  // 🚀 SIMPLIFIED: Toggle without complex scroll management
+  const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}) => {
+    try {
+      console.log(`🔄 Toggling exercise ${exerciseId} to ${completed ? 'completed' : 'incomplete'}`);
       
-      const updatedPlan = { ...prevPlan };
-      const newPlan = { ...updatedPlan.plan };
-      
-      // Find and update the specific exercise
-      Object.keys(newPlan).forEach(weekKey => {
-        Object.keys(newPlan[weekKey]).forEach(dayKey => {
-          if (newPlan[weekKey][dayKey].exercises) {
-            newPlan[weekKey][dayKey] = {
-              ...newPlan[weekKey][dayKey],
-              exercises: newPlan[weekKey][dayKey].exercises.map(ex => 
-                ex.id === exerciseId 
-                  ? { ...ex, completed: completed }
-                  : ex
-              )
-            };
-          }
-        });
+      const response = await fetch(`${BACKEND_URL}/workout/exercise/${exerciseId}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          completed: completed,
+          ...exerciseData
+        })
       });
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      console.log("✅ Exercise toggled successfully");
       
-      updatedPlan.plan = newPlan;
-      return updatedPlan;
-    });
+      // Update local state immediately for instant feedback
+      setCurrentPlan(prevPlan => {
+        if (!prevPlan || !prevPlan.plan) return prevPlan;
+        
+        const updatedPlan = { ...prevPlan };
+        const newPlan = { ...updatedPlan.plan };
+        
+        // Find and update the specific exercise
+        Object.keys(newPlan).forEach(weekKey => {
+          Object.keys(newPlan[weekKey]).forEach(dayKey => {
+            if (newPlan[weekKey][dayKey].exercises) {
+              newPlan[weekKey][dayKey] = {
+                ...newPlan[weekKey][dayKey],
+                exercises: newPlan[weekKey][dayKey].exercises.map(ex => 
+                  ex.id === exerciseId 
+                    ? { ...ex, completed: completed }
+                    : ex
+                )
+              };
+            }
+          });
+        });
+        
+        updatedPlan.plan = newPlan;
+        return updatedPlan;
+      });
 
-    // Also update the selected exercise if it's the one being toggled
-    setSelectedExercise(prev => 
-      prev && prev.id === exerciseId 
-        ? { ...prev, completed: completed }
-        : prev
-    );
+      // Update selected exercise if it's the one being toggled
+      setSelectedExercise(prev => 
+        prev && prev.id === exerciseId 
+          ? { ...prev, completed: completed }
+          : prev
+      );
 
-    // ✅ Refresh workout progress so progress stats & animations update instantly
-    fetchWorkoutProgress();
+      // Refresh workout progress (delayed to avoid scroll issues)
+      setTimeout(async () => {
+        await fetchWorkoutProgress();
+        await checkAndUpdatePlan();
+      }, 500);
 
-    // Show immediate feedback
-    if (completed) {
-      Alert.alert('✅ Exercise Completed!', 'Great job! Keep it up!', [{ text: 'OK' }]);
+      // Show immediate feedback
+      if (completed) {
+        Alert.alert('✅ Exercise Completed!', 'Great job! Keep it up!', [{ text: 'OK' }]);
+      }
+
+      return true;
+    } catch (err) {
+      console.error("❌ Error toggling exercise:", err);
+      Alert.alert('Error', 'Failed to update exercise status');
+      return false;
     }
-
-    return true;
-  } catch (err) {
-    console.error("❌ Error toggling exercise:", err);
-    Alert.alert('Error', 'Failed to update exercise status');
-    return false;
-  }
-};
+  };
 
   // Start workout session
   const startWorkoutSession = (week, day, dayData) => {
@@ -184,7 +318,7 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
     setActiveWorkout(prev => ({ ...prev, intervalId: interval }));
   };
 
-  // End workout session
+  // End workout session with progression check
   const endWorkoutSession = async (notes = '') => {
     if (!activeWorkout) return;
     
@@ -215,7 +349,7 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
           user_id: user.uid,
           week: activeWorkout.week,
           day: activeWorkout.day,
-          duration: Math.floor(workoutTimer / 60), // Convert to minutes
+          duration: Math.floor(workoutTimer / 60),
           notes: notes,
           exercises: completedExercises
         })
@@ -226,11 +360,16 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
       Alert.alert(
         'Workout Complete! 🎉',
         `Great job! You completed ${completedExercises.length} exercises in ${Math.floor(workoutTimer / 60)} minutes.`,
-        [{ text: 'OK', onPress: () => {
+        [{ text: 'OK', onPress: async () => {
           setActiveWorkout(null);
           setWorkoutTimer(0);
           setWorkoutStartTime(null);
-          fetchWorkoutProgress();
+          await fetchWorkoutProgress();
+          
+          // Check for week completion after workout
+          setTimeout(() => {
+            checkAndUpdatePlan();
+          }, 1000);
         }}]
       );
 
@@ -247,15 +386,39 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Load data on component mount
+  // Use focus effect to check for plan updates when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log("📱 WorkoutLogsScreen focused, checking for updates...");
+      fetchCurrentPlan();
+      fetchWorkoutProgress();
+    }, [user])
+  );
+
+  // Periodic check for plan updates every 30 seconds while screen is active
   useEffect(() => {
-    fetchCurrentPlan();
-    fetchWorkoutProgress();
+    const interval = setInterval(() => {
+      if (user?.uid) {
+        console.log("🔄 Periodic plan check...");
+        fetchCurrentPlan();
+      }
+    }, 30000); // Check every 30 seconds
+
+    return () => clearInterval(interval);
   }, [user]);
 
-  // Animation effects
+  // Auto-expand current week when plan loads
   useEffect(() => {
-    // Entrance animation
+    if (currentPlan?.plan && !expandedWeek) {
+      const currentWeek = getCurrentWeekKey();
+      if (currentWeek && currentPlan.plan[currentWeek]) {
+        setExpandedWeek(currentWeek);
+      }
+    }
+  }, [currentPlan]);
+
+  // 🚀 SIMPLIFIED: Basic animations without complex dependencies
+  useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -278,7 +441,6 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
   // Progress stats for current plan
   const getProgressStats = () => {
     if (!workoutProgress) {
-      // Fallback stats from current plan if progress isn't available
       const completion = currentPlan?.completion_percentage || 0;
       return [
         {
@@ -298,12 +460,12 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
           description: 'Total sessions'
         },
         {
-          id: 'streak',
-          label: 'Current Streak',
-          value: '0d',
-          icon: 'flame',
+          id: 'week',
+          label: 'Current Week',
+          value: getCurrentWeekKey()?.replace('Week ', '') || '1',
+          icon: 'calendar',
           gradient: ['#4facfe', '#00f2fe'],
-          description: 'Keep it up!'
+          description: 'Week progress'
         },
         {
           id: 'time',
@@ -334,12 +496,12 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
         description: 'Total sessions'
       },
       {
-        id: 'streak',
-        label: 'Current Streak',
-        value: `${workoutProgress.current_streak || 0}d`,
-        icon: 'flame',
+        id: 'week',
+        label: 'Current Week',
+        value: getCurrentWeekKey()?.replace('Week ', '') || '1',
+        icon: 'calendar',
         gradient: ['#4facfe', '#00f2fe'],
-        description: 'Keep it up!'
+        description: 'Week progress'
       },
       {
         id: 'time',
@@ -397,33 +559,30 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
           </View>
 
           <View style={styles.modalActions}>
-<TouchableOpacity
-  style={[
-    styles.completionButton,
-    selectedExercise?.completed ? styles.completedButton : styles.incompleteButton
-  ]}
-  onPress={async () => {
-    const newCompletedState = !selectedExercise.completed;
-    
-    // Update UI immediately
-    setSelectedExercise(prev => ({ ...prev, completed: newCompletedState }));
-    
-    const success = await toggleExerciseCompletion(
-      selectedExercise.id,
-      newCompletedState
-    );
-    
-    if (success) {
-      // Keep modal open to show the updated state, or close after a brief delay
-      setTimeout(() => {
-        setShowExerciseModal(false);
-      }, 1000); // Close after 1 second to show the success state
-    } else {
-      // Revert the UI change if the request failed
-      setSelectedExercise(prev => ({ ...prev, completed: !newCompletedState }));
-    }
-  }}
->
+            <TouchableOpacity
+              style={[
+                styles.completionButton,
+                selectedExercise?.completed ? styles.completedButton : styles.incompleteButton
+              ]}
+              onPress={async () => {
+                const newCompletedState = !selectedExercise.completed;
+                
+                setSelectedExercise(prev => ({ ...prev, completed: newCompletedState }));
+                
+                const success = await toggleExerciseCompletion(
+                  selectedExercise.id,
+                  newCompletedState
+                );
+                
+                if (success) {
+                  setTimeout(() => {
+                    setShowExerciseModal(false);
+                  }, 1000);
+                } else {
+                  setSelectedExercise(prev => ({ ...prev, completed: !newCompletedState }));
+                }
+              }}
+            >
               <Ionicons 
                 name={selectedExercise?.completed ? "checkmark-circle" : "add-circle"} 
                 size={20} 
@@ -461,7 +620,7 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
           </LinearGradient>
           <Text style={styles.emptyTitle}>Oops! Something went wrong</Text>
           <Text style={styles.emptyText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={fetchCurrentPlan}>
+          <TouchableOpacity style={styles.retryButton} onPress={() => fetchCurrentPlan(true)}>
             <LinearGradient colors={['#667eea', '#764ba2']} style={styles.retryGradient}>
               <Ionicons name="refresh" size={16} color="#fff" />
               <Text style={styles.retryButtonText}>Try Again</Text>
@@ -479,7 +638,10 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
           </LinearGradient>
           <Text style={styles.emptyTitle}>Ready to start your fitness journey?</Text>
           <Text style={styles.emptyText}>Generate your personalized workout plan and begin tracking your progress!</Text>
-          <TouchableOpacity style={styles.retryButton}>
+          <TouchableOpacity 
+            style={styles.retryButton}
+            onPress={() => navigation.navigate('WorkoutGeneration')}
+          >
             <LinearGradient colors={['#667eea', '#764ba2']} style={styles.retryGradient}>
               <Ionicons name="add" size={16} color="#fff" />
               <Text style={styles.retryButtonText}>Create Plan</Text>
@@ -492,10 +654,15 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
     const progressStats = getProgressStats();
 
     return (
-      <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
-        {/* Active Workout Header */}
+      <ScrollView 
+        ref={scrollViewRef}
+        style={styles.tabContent} 
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Active Workout Header - FIXED: Remove animations during workout */}
         {activeWorkout && (
-          <Animated.View style={[styles.activeWorkoutHeader, { opacity: fadeAnim }]}>
+          <View style={styles.activeWorkoutHeader}>
             <LinearGradient
               colors={['#f093fb', '#f5576c']}
               style={styles.activeWorkoutGradient}
@@ -507,6 +674,7 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
                 <Text style={styles.activeWorkoutTimer}>{formatTime(workoutTimer)}</Text>
                 <Text style={styles.activeWorkoutSubtitle}>Keep pushing! You're doing great!</Text>
               </View>
+
               <TouchableOpacity
                 style={styles.endWorkoutButton}
                 onPress={() => endWorkoutSession()}
@@ -515,11 +683,11 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
                 <Text style={styles.endWorkoutText}>Finish</Text>
               </TouchableOpacity>
             </LinearGradient>
-          </Animated.View>
+          </View>
         )}
 
-        {/* Motivational Header */}
-        <Animated.View style={[styles.motivationalHeader, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+        {/* Motivational Header - FIXED: Remove animations during workout */}
+        <View style={styles.motivationalHeader}>
           <LinearGradient colors={['#667eea', '#764ba2']} style={styles.motivationalGradient}>
             <Text style={styles.motivationalText}>
               {activeWorkout ? "💪 Workout in Progress!" : "🚀 Ready to crush your goals?"}
@@ -528,24 +696,16 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
               {currentPlan?.program_name || "Your Fitness Journey"}
             </Text>
           </LinearGradient>
-        </Animated.View>
+        </View>
 
-        {/* Enhanced Progress Stats */}
-        <Animated.View style={[styles.statsContainer, { opacity: fadeAnim, transform: [{ scale: scaleAnim }] }]}>
+        {/* Enhanced Progress Stats - FIXED: Remove animations during workout */}
+        <View style={styles.statsContainer}>
           <Text style={styles.statsTitle}>Your Progress</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statsScrollContent}>
             {progressStats.map((stat, index) => (
-              <Animated.View 
+              <View 
                 key={stat.id} 
-                style={[
-                  styles.statCard,
-                  { 
-                    opacity: fadeAnim,
-                    transform: [{ 
-                      translateX: Animated.add(slideAnim, new Animated.Value(index * 10)) 
-                    }] 
-                  }
-                ]}
+                style={styles.statCard}
               >
                 <LinearGradient colors={stat.gradient} style={styles.statCardGradient}>
                   <View style={styles.statIconContainer}>
@@ -555,13 +715,13 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
                   <Text style={styles.statLabel}>{stat.label}</Text>
                   <Text style={styles.statDescription}>{stat.description}</Text>
                 </LinearGradient>
-              </Animated.View>
+              </View>
             ))}
           </ScrollView>
-        </Animated.View>
+        </View>
 
-        {/* Enhanced Workout Plan */}
-        <Animated.View style={[styles.planContainer, { opacity: fadeAnim }]}>
+        {/* Enhanced Workout Plan - FIXED: Conditional animations */}
+        <View style={styles.planContainer}>
           <View style={styles.planHeader}>
             <Text style={styles.planTitle}>Your Workout Plan</Text>
             <Text style={styles.planSubtitle}>Tap exercises to track your progress</Text>
@@ -570,25 +730,40 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
           {Object.entries(currentPlan.plan || {}).map(([weekKey, weekData], weekIndex) => {
             const weekNum = weekKey.replace('Week ', '');
             const isWeekExpanded = expandedWeek === weekKey;
+            const isCurrentWeek = getCurrentWeekKey() === weekKey;
             
             // Calculate week progress
             const weekExercises = Object.values(weekData || {}).flatMap(day => day.exercises || []);
             const weekCompletedExercises = weekExercises.filter(ex => ex.completed).length;
             const weekProgress = weekExercises.length > 0 ? (weekCompletedExercises / weekExercises.length) * 100 : 0;
             
+            // FIXED: Use regular View when workout is active
+            const WeekContainer = activeWorkout ? View : Animated.View;
+            const weekContainerProps = activeWorkout ? {} : {
+              style: [
+                styles.weekContainer,
+                isCurrentWeek && styles.currentWeekContainer,
+                { 
+                  opacity: fadeAnim,
+                  transform: [{ translateY: Animated.add(slideAnim, new Animated.Value(weekIndex * 5)) }]
+                }
+              ]
+            };
+            
+            if (activeWorkout) {
+              weekContainerProps.style = [
+                styles.weekContainer,
+                isCurrentWeek && styles.currentWeekContainer
+              ];
+            }
+            
             return (
-              <Animated.View 
+              <WeekContainer 
                 key={weekKey} 
-                style={[
-                  styles.weekContainer,
-                  { 
-                    opacity: fadeAnim,
-                    transform: [{ translateY: Animated.add(slideAnim, new Animated.Value(weekIndex * 5)) }]
-                  }
-                ]}
+                {...weekContainerProps}
               >
                 <TouchableOpacity
-                  style={styles.weekHeader}
+                  style={[styles.weekHeader, isCurrentWeek && styles.currentWeekHeader]}
                   onPress={() => setExpandedWeek(isWeekExpanded ? null : weekKey)}
                 >
                   <View style={styles.weekHeaderLeft}>
@@ -599,7 +774,9 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
                       <Text style={styles.weekProgressText}>{Math.round(weekProgress)}%</Text>
                     </LinearGradient>
                     <View>
-                      <Text style={styles.weekTitle}>{weekKey}</Text>
+                      <Text style={[styles.weekTitle, isCurrentWeek && styles.currentWeekTitle]}>
+                        {weekKey} {isCurrentWeek && '• Current'}
+                      </Text>
                       <Text style={styles.weekProgress}>
                         {weekCompletedExercises}/{weekExercises.length} exercises completed
                       </Text>
@@ -622,16 +799,24 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
                       const totalExercises = exercises.length;
                       const dayProgress = totalExercises > 0 ? (completedExercises / totalExercises) * 100 : 0;
                       
-                      return (
-                        <Animated.View 
-                          key={dayKey} 
-                          style={[
+                      // FIXED: Use regular View for days when workout is active
+                      const DayContainer = activeWorkout ? View : Animated.View;
+                      const dayContainerProps = activeWorkout ? 
+                        { style: styles.dayContainer } : 
+                        { 
+                          style: [
                             styles.dayContainer,
                             { 
                               opacity: fadeAnim,
                               transform: [{ translateX: Animated.add(slideAnim, new Animated.Value(dayIndex * 3)) }]
                             }
-                          ]}
+                          ]
+                        };
+                      
+                      return (
+                        <DayContainer 
+                          key={dayKey} 
+                          {...dayContainerProps}
                         >
                           <TouchableOpacity
                             style={[styles.dayHeader, dayProgress === 100 && styles.dayHeaderCompleted]}
@@ -678,7 +863,7 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
                           </TouchableOpacity>
                           
                           {isDayExpanded && (
-                            <Animated.View style={[styles.exercisesList, { opacity: fadeAnim }]}>
+                            <View style={styles.exercisesList}>
                               {exercises.map((exercise, index) => (
                                 <TouchableOpacity
                                   key={exercise.id || `${dayKey}-${index}`}
@@ -692,22 +877,20 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
                                   }}
                                 >
                                   <View style={styles.exerciseItemLeft}>
-                                   <TouchableOpacity
-  style={[
-    styles.exerciseCheckbox,
-    exercise.completed && styles.exerciseCheckboxChecked
-  ]}
-  onPress={async () => {
-    const newCompletedState = !exercise.completed;
-    
-    // Call the toggle function (which now updates state immediately)
-    await toggleExerciseCompletion(exercise.id, newCompletedState);
-  }}
->
-  {exercise.completed && (
-    <Ionicons name="checkmark" size={14} color="#fff" />
-  )}
-</TouchableOpacity>
+                                    <TouchableOpacity
+                                      style={[
+                                        styles.exerciseCheckbox,
+                                        exercise.completed && styles.exerciseCheckboxChecked
+                                      ]}
+                                      onPress={async () => {
+                                        const newCompletedState = !exercise.completed;
+                                        await toggleExerciseCompletion(exercise.id, newCompletedState);
+                                      }}
+                                    >
+                                      {exercise.completed && (
+                                        <Ionicons name="checkmark" size={14} color="#fff" />
+                                      )}
+                                    </TouchableOpacity>
                                     <View style={styles.exerciseInfo}>
                                       <Text style={[
                                         styles.exerciseName,
@@ -738,17 +921,17 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
                                   </View>
                                 </TouchableOpacity>
                               ))}
-                            </Animated.View>
+                            </View>
                           )}
-                        </Animated.View>
+                        </DayContainer>
                       );
                     })}
                   </View>
                 )}
-              </Animated.View>
+              </WeekContainer>
             );
           })}
-        </Animated.View>
+        </View>
       </ScrollView>
     );
   };
@@ -770,8 +953,11 @@ const toggleExerciseCompletion = async (exerciseId, completed, exerciseData = {}
           </Text>
         </View>
         {!activeWorkout && (
-          <TouchableOpacity style={styles.headerAction}>
-            <Ionicons name="trophy" size={24} color="rgba(255,255,255,0.8)" />
+          <TouchableOpacity 
+            style={styles.headerAction}
+            onPress={() => fetchCurrentPlan(true)}
+          >
+            <Ionicons name="refresh" size={24} color="rgba(255,255,255,0.8)" />
           </TouchableOpacity>
         )}
       </LinearGradient>
@@ -1005,6 +1191,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 6,
   },
+  currentWeekContainer: {
+    borderWidth: 2,
+    borderColor: '#667eea',
+    elevation: 6,
+    shadowColor: '#667eea',
+    shadowOpacity: 0.2,
+  },
   weekHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1013,6 +1206,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8f9fa',
     borderBottomWidth: 1,
     borderBottomColor: '#e9ecef',
+  },
+  currentWeekHeader: {
+    backgroundColor: '#f0f4ff',
+    borderBottomColor: '#667eea',
   },
   weekHeaderLeft: {
     flexDirection: 'row',
@@ -1035,6 +1232,9 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#333',
+  },
+  currentWeekTitle: {
+    color: '#667eea',
   },
   weekProgress: {
     fontSize: 14,

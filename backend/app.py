@@ -21,6 +21,7 @@ from routes.auth_routes import auth_bp
 from routes.chatbot_routes import chatbot_bp
 from routes.workout_logs import workout_logs_bp
 from routes.workout_logs import parser_bp
+from routes.dashboard import dashboard_bp
 #from routes.report_routes import report_bp
 #from routes.progress_routes import progress_bp
 from routes.generateProgram_routes import generate_bp
@@ -31,6 +32,7 @@ app.register_blueprint(auth_bp, url_prefix="/auth")
 app.register_blueprint(generate_bp, url_prefix="/generate")
 app.register_blueprint(workout_logs_bp)
 app.register_blueprint(parser_bp)
+app.register_blueprint(dashboard_bp)
 
 @app.route('/')
 def index():

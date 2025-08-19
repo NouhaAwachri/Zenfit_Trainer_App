@@ -1,5 +1,6 @@
 {
   "dependencies": {
-    "@react-native-google-signin/google-signin": "^15.0.0"
+    "@react-native-google-signin/google-signin": "^15.0.0",
+    "react-native-markdown-display": "^7.0.2"
   }
 }
