@@ -84,26 +84,4 @@ npx expo start
 
  Gamification dashboard (achievements, streaks, leaderboard)
 
-## 📸 Screenshots
-
-### 🔐 Welcome
-![Welcome](https://github.com/user-attachments/assets/2596884d-5cad-49f6-9a80-79f9c6c064e9)
-
-### Authentication
-![Signup](https://github.com/user-attachments/assets/38c47607-b6d1-46f4-a722-68077a66eaf8)
-![Signin](https://github.com/user-attachments/assets/fb52be25-5cee-45bd-976f-0c51a3057631)
-
-### Workout Generation
-![Questionnaire](https://github.com/user-attachments/assets/c72202e9-ddf1-4499-80aa-20f7986b9bda)
-![Generate Workout](https://github.com/user-attachments/assets/42e00565-5529-4f64-85d5-6d05c7aaa2e8)
-
-### 🏋️ Workout Follow-Up
-![Follow](https://github.com/user-attachments/assets/cdefc091-3c51-48d0-9a3b-b79494c57553)
-
-### Logging
-![Logs](https://github.com/user-attachments/assets/89cd6913-796f-4a4a-b7e7-8499f917c4f0)
-
-### 📊 Dashboard with Gamification
-![Gamification Zone](https://github.com/user-attachments/assets/eee49ab8-d034-4a23-a2f7-4b75e2003a2e)
-![Dashboard](https://github.com/user-attachments/assets/98af7fe5-d0f5-489e-9fb5-c190034eab98)
 
